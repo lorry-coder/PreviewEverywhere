@@ -1,0 +1,15 @@
+/pe
+/dist/
+node_modules/
+
+# 前端构建产物整个不进 git：文件名带内容哈希，每次构建都变，
+# 提交它们只会制造噪音。但 dist/ 目录本身必须存在且非空——
+# //go:embed all:dist 找不到任何文件会直接让 go build 失败，
+# 所以留一个 .gitkeep（all: 前缀会把点号开头的文件也算进去）。
+/web/dist/*
+!/web/dist/.gitkeep
+
+*.db
+*.db-wal
+*.db-shm
+.DS_Store

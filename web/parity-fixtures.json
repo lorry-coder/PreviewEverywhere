@@ -1,0 +1,74 @@
+[
+  {
+    "in": "简单一句话",
+    "want": "简单一句话"
+  },
+  {
+    "in": "一段话，\n中间换了行。",
+    "want": "一段话，中间换了行。"
+  },
+  {
+    "in": "English words   with   extra spaces",
+    "want": "English words with extra spaces"
+  },
+  {
+    "in": "中文和 English 混排",
+    "want": "中文和 English 混排"
+  },
+  {
+    "in": "English 后面接中文",
+    "want": "English 后面接中文"
+  },
+  {
+    "in": "行首有空格   ",
+    "want": "行首有空格"
+  },
+  {
+    "in": "   开头也有",
+    "want": "开头也有"
+  },
+  {
+    "in": "制表\t符\t分隔",
+    "want": "制表符分隔"
+  },
+  {
+    "in": "零宽​字符‌混入﻿其中",
+    "want": "零宽字符混入其中"
+  },
+  {
+    "in": "多个\n\n\n换行",
+    "want": "多个换行"
+  },
+  {
+    "in": "中文。\nEnglish start",
+    "want": "中文。 English start"
+  },
+  {
+    "in": "日本語のテキスト\nと改行",
+    "want": "日本語のテキストと改行"
+  },
+  {
+    "in": "한글 텍스트\n줄바꿈",
+    "want": "한글텍스트줄바꿈"
+  },
+  {
+    "in": "全角（括号）与半角(parens)",
+    "want": "全角（括号）与半角(parens)"
+  },
+  {
+    "in": "emoji 😀 和中文",
+    "want": "emoji 😀 和中文"
+  },
+  {
+    "in": "",
+    "want": ""
+  },
+  {
+    "in": "   ",
+    "want": ""
+  },
+  {
+    "in": "a b",
+    "want": "a b"
+  }
+]

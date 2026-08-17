@@ -1,0 +1,53 @@
+# 部署到服务器 / NAS。默认是「推送模式」——不挂载任何项目目录。
+#
+# 为什么默认不挂：你的 agent 跑在开发机上，文件也在开发机上，
+# 远端这台机器根本看不到那些目录。所以远程部署天然靠 hook / pe push 送文档，
+# 而那条路一个 bind mount 都不需要。
+#
+#   开发机上：~/.config/pe/config.toml 里把 endpoint 指向这台机器
+#   endpoint = "http://<服务器或NAS的IP>:8080"
+#   token    = "<pe token 打印的口令>"
+
+services:
+  pe:
+    build: .
+    image: previeweverywhere:latest
+    container_name: pe
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      # 全部数据：pe.db、blobs/、pe.toml。这一个卷就是全部需要备份的东西。
+      - pe-data:/data
+
+      # ── 只有当文档确实在这台机器上时才需要下面这段 ──
+      # 路径两边要一模一样：pe.toml 里存的是绝对路径，容器内外不一致的话，
+      # 你在宿主机上按容器路径去找文件会对不上。
+      # - /home/you/Code:/home/you/Code:ro
+      #
+      # 注意：inotify 只在同一台机器的本地文件系统上可靠。
+      # 如果这些目录本身是 NFS/SMB 挂载进来的，文件监听不会触发——
+      # 那种情况只能用推送模式。
+
+    environment:
+      # 必须显式设置。容器默认 UTC，而时间线按服务端本地日期分组，
+      # 半夜前后写的文档会被归到昨天却在手机上标着「今天」。
+      TZ: Asia/Shanghai
+
+    # 其余选项（localize_cdn、ignore、watch）都写在数据卷里的 pe.toml，
+    # 首次启动后用 `docker exec -it pe vi /data/pe.toml` 改，改完重启容器。
+
+    # 挂载了宿主机目录时，让容器用你的 uid 跑，免得写出 root 属主的文件。
+    # user: "1000:1000"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  pe-data:

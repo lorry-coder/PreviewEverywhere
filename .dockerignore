@@ -1,0 +1,12 @@
+# 构建上下文里不需要、且体积很大的东西
+web/node_modules
+web/dist/assets
+node_modules
+.git
+dist
+pe
+*.db
+*.db-wal
+*.db-shm
+*.tar.gz
+docs/试读.md
