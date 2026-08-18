@@ -65,6 +65,12 @@ type Source struct {
 	// Assets 是跨机推送时随正文一起送来的图片，键是文档里写的原始引用。
 	// 服务端看不到对方的文件系统，只能靠这个把图收进来。
 	Assets map[string][]byte
+
+	// Explicit 标记这是人主动推的（pe push、MCP），而不是自动通道
+	// （目录监听、hook）扫到的。唯一的用处是决定怎么对待删除墓碑：
+	// 自动通道尊重「我删过它」，显式推送则覆盖它——
+	// 你亲手推的，比你几个月前删过更能代表当下的意图。
+	Explicit bool
 }
 
 // Event 在文档成功入库后发出，供 SSE 推给在线的阅读端。
@@ -150,10 +156,37 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 	sourceKey := resolveSourceKey(src, ref, filename, raw, fm)
 	contentSha := store.Sha256Hex(raw)
 
+	// 主动删掉的东西不该自己回来。源文件还在被监听的目录里时，
+	// 没有这道判断的话「删除」就只是个假动作——下次启动扫描原样收回。
+	if src.Explicit {
+		if err := p.st.ClearDeleted(projectID, sourceKey); err != nil {
+			log.Printf("清除 %s 的删除标记失败: %v", sourceKey, err)
+		}
+	} else if deleted, err := p.st.IsDeleted(projectID, sourceKey); err == nil && deleted {
+		return store.SaveResult{DocID: 0}, nil
+	}
+
 	// 在渲染之前就挡掉没有变化的内容。agent 反复写同一份文件是常态，
 	// 这条快速路径省掉的是整条渲染管线，而不只是一次数据库写入。
-	if head, err := p.st.HeadSha(projectID, sourceKey); err == nil && head == contentSha {
+	// 注意 HeadSha 在这个 source_key 还没入库时返回的是 ("", nil) 而不是错误，
+	// 所以「是不是新来的」要看 head 是否为空，不能看 err。
+	head, err := p.st.HeadSha(projectID, sourceKey)
+	if err == nil && head != "" && head == contentSha {
 		return store.SaveResult{DocID: 0}, nil
+	}
+
+	// 改名跟随。文件改名在 inotify 里就是「删旧 + 建新」，不认出来就会
+	// 留下两篇一模一样的文档，而批注、标签、已读状态全留在那篇
+	// 再也不会更新的旧的上。
+	if err == nil && head == "" {
+		if docID, oldKey, ok := p.detectRename(projectID, sourceKey, contentSha); ok {
+			if err := p.st.RelocateDoc(docID, sourceKey, src.Path); err != nil {
+				log.Printf("改名跟随失败: %v", err)
+			} else {
+				log.Printf("改名跟随 %s → %s（批注与已读状态一并带走）", oldKey, sourceKey)
+				return store.SaveResult{DocID: docID}, nil
+			}
+		}
 	}
 
 	baseDir := ""
@@ -249,6 +282,37 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 		p.emit(Event{DocID: res.DocID, Title: title, Project: ref.Name, Seq: res.Seq, NewDoc: res.NewDoc})
 	}
 	return res, nil
+}
+
+// detectRename 判断这份新来的内容其实是某篇已有文档改了个名字。
+//
+// 三个条件缺一不可：内容哈希一致、新 source_key 尚未入库（调用方已保证）、
+// 旧文档的源文件确实已经不在磁盘上。最后这条是把「改名」和「复制」区分开的
+// 唯一依据——`cp a.md b.md` 之后两个文件都在，那就是实打实的两篇。
+//
+// 命中多个候选时一律放弃：宁可留下一份重复让你手动删，也不能把批注挪错地方。
+func (p *Pipeline) detectRename(projectID int64, sourceKey, contentSha string) (int64, string, bool) {
+	candidates, err := p.st.FindRenameCandidates(projectID, contentSha, sourceKey)
+	if err != nil || len(candidates) == 0 {
+		return 0, "", false
+	}
+
+	var hit store.RenameCandidate
+	found := 0
+	for _, c := range candidates {
+		// 没记源路径的（跨机推送来的）无从判断，跳过。
+		if c.SourcePath == "" {
+			continue
+		}
+		if _, err := os.Stat(c.SourcePath); os.IsNotExist(err) {
+			hit = c
+			found++
+		}
+	}
+	if found != 1 {
+		return 0, "", false
+	}
+	return hit.DocID, hit.SourceKey, true
 }
 
 // assetResolver 把文档里的相对图片引用换成平台内的 URL，并把图片本身

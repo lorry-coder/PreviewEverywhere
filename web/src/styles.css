@@ -473,6 +473,61 @@ a {
   background: var(--wash);
 }
 
+/* 删除是这里唯一不可撤销的操作，用 --warn 把它和其它按钮明确区分开。
+   平时只是变个色，不抢注意力；点开确认区之后才把话说完整。 */
+.text-btn.danger {
+  color: var(--warn);
+  border-color: var(--warn);
+  opacity: 0.75;
+}
+
+.text-btn.danger:hover {
+  opacity: 1;
+  color: var(--warn);
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.delete-confirm {
+  flex-basis: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warn) 5%, transparent);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+
+.delete-confirm p {
+  margin: 0 0 6px;
+}
+
+.delete-forget {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.delete-hint {
+  margin: 6px 0 0;
+  color: var(--text-3, var(--text-2));
+}
+
+.delete-error {
+  margin: 6px 0 0;
+  color: var(--warn);
+}
+
+.delete-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .notice {
   border-left: 2px solid var(--warn);
   background: var(--surface);

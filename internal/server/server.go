@@ -45,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/docs", s.requireAuth(s.handleDocs))
 	mux.HandleFunc("GET /api/v1/docs/{id}", s.requireAuth(s.handleDoc))
 	mux.HandleFunc("PATCH /api/v1/docs/{id}", s.requireAuth(s.handlePatchDoc))
+	mux.HandleFunc("DELETE /api/v1/docs/{id}", s.requireAuth(s.handleDeleteDoc))
 	mux.HandleFunc("PUT /api/v1/docs/{id}/tags", s.requireAuth(s.handleSetTags))
 	mux.HandleFunc("GET /api/v1/docs/{id}/annotations", s.requireAuth(s.handleListAnnotations))
 	mux.HandleFunc("POST /api/v1/docs/{id}/annotations", s.requireAuth(s.handleCreateAnnotation))

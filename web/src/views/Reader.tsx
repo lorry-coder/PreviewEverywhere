@@ -15,6 +15,7 @@ import AnnotationLayer from '../components/AnnotationLayer'
 import SelectionPopup from '../components/SelectionPopup'
 import TagEditor from '../components/TagEditor'
 import { readingTime, relativeTime, spaceCJK } from '../format'
+import { navigate } from '../router'
 import { renderRichContent } from '../richContent'
 
 interface Props {
@@ -174,6 +175,7 @@ export default function Reader(props: Props) {
             >
               {doc.read ? '已读' : '标为已读'}
             </button>
+            <DeleteButton doc={doc} onDeleted={onChanged} />
           </div>
         </div>
       </header>
@@ -250,6 +252,74 @@ export default function Reader(props: Props) {
  *  2. 只靠防抖保存会丢进度：滚两下立刻退出，那次保存还没发出去。
  *     所以离开页面、切到后台、组件卸载时都各补一次。
  */
+/**
+ * 删除按钮。二次确认不是走个形式：批注和版本历史会一起消失，而它们是
+ * 这个平台里唯一无法从别处恢复的东西——源文件还能重新采集，你写的批注不能。
+ */
+function DeleteButton({ doc, onDeleted }: { doc: DocDetail; onDeleted: () => void }) {
+  const [confirming, setConfirming] = useState(false)
+  const [forget, setForget] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!confirming) {
+    return (
+      <button className="text-btn danger" onClick={() => setConfirming(true)}>
+        删除
+      </button>
+    )
+  }
+
+  const annotationCount = doc.annotations?.length ?? 0
+
+  return (
+    <div className="delete-confirm">
+      <p>
+        删掉这篇？
+        {annotationCount > 0 && (
+          <>
+            {' '}
+            <b>{annotationCount} 条批注</b>会一起消失，无法恢复。
+          </>
+        )}
+        {doc.sourcePath && ' 磁盘上的源文件不受影响。'}
+      </p>
+      <label className="delete-forget">
+        <input type="checkbox" checked={forget} onChange={(e) => setForget(e.target.checked)} />
+        以后源文件再被扫到时还收进来
+      </label>
+      {!forget && doc.sourcePath && (
+        <p className="delete-hint">
+          默认会记住「这篇不要了」，否则下次扫描到同一个文件又会把它收回来。
+        </p>
+      )}
+      {error && <p className="delete-error">{error}</p>}
+      <div className="delete-actions">
+        <button
+          className="text-btn danger"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await api.deleteDoc(doc.id, forget)
+              onDeleted()
+              navigate('#/all')
+            } catch (e) {
+              setError(e instanceof Error ? e.message : '删除失败')
+              setBusy(false)
+            }
+          }}
+        >
+          {busy ? '删除中…' : '确认删除'}
+        </button>
+        <button className="text-btn" disabled={busy} onClick={() => setConfirming(false)}>
+          取消
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function useReadingProgress(
   doc: DocDetail | null,
   scrollRef: React.RefObject<HTMLDivElement | null>,

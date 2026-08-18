@@ -186,6 +186,8 @@ func buildIngestRequest(client *config.Client, req pushRequest) (*http.Request, 
 			"tags":     req.tags,
 			"run":      req.run,
 			"runLabel": req.runLabel,
+			// 人敲的命令，覆盖之前可能留下的删除标记。
+			"explicit": true,
 		}
 		if req.path != "" {
 			// 同机：给路径，正文让服务端自己读，省一次搬运也拿到了上下文。
@@ -240,6 +242,8 @@ func buildIngestRequest(client *config.Client, req pushRequest) (*http.Request, 
 		"project": req.project, "title": req.title,
 		"run": req.run, "runLabel": req.runLabel, "filename": req.filename,
 		"projectHint": projectHint, "sourceKey": sourceKey,
+		// 人敲的命令，覆盖之前可能留下的删除标记。
+		"explicit": "1",
 	}
 	for k, v := range fields {
 		if v != "" {

@@ -237,6 +237,7 @@ func callPublish(client *config.Client, argsRaw json.RawMessage) (string, bool) 
 			content = "---\nsummary: " + strconv.Quote(args.Summary) + "\n---\n\n" + content
 		}
 		body["content"] = content
+		body["explicit"] = true
 		if args.Path != "" {
 			// 有原文件名时带上，好让服务端按扩展名判断 md/html。
 			body["filename"] = filepath.Base(args.Path)

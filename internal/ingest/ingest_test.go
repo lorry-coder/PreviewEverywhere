@@ -492,3 +492,112 @@ func TestUnresolvableImageIsMarkedMissing(t *testing.T) {
 		t.Errorf("找不到的图片应被标成缺失:\n%s", detail.HTML)
 	}
 }
+
+// 改名跟随：文件改名在 inotify 里就是「删旧 + 建新」。不认出来的话，
+// 批注、标签、已读状态会全留在那篇再也不会更新的旧文档上。
+func TestRenameFollows(t *testing.T) {
+	p, st := newPipeline(t)
+	root := fakeRepo(t, "proj")
+
+	old := filepath.Join(root, "原名.md")
+	if err := os.WriteFile(old, []byte("# 标题\n\n内容一字未改。\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := p.Ingest(Source{Path: old})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 改名：旧文件消失，新文件出现，内容完全一致
+	newPath := filepath.Join(root, "新名.md")
+	if err := os.Rename(old, newPath); err != nil {
+		t.Fatal(err)
+	}
+	second, err := p.Ingest(Source{Path: newPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if second.DocID != first.DocID {
+		t.Errorf("改名后应当还是同一篇文档：改名前 id=%d，改名后 id=%d", first.DocID, second.DocID)
+	}
+	var n int
+	if err := st.DB.QueryRow(`SELECT count(*) FROM doc`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("库里应当只有 1 篇，实得 %d 篇", n)
+	}
+	var key string
+	st.DB.QueryRow(`SELECT source_key FROM doc WHERE id = ?`, first.DocID).Scan(&key)
+	if key != "新名.md" {
+		t.Errorf("source_key 应当跟到新名字，实得 %q", key)
+	}
+}
+
+// 复制不是改名：`cp a.md b.md` 之后两个文件都在，那就是实打实的两篇。
+// 这是把改名和复制区分开的唯一依据，错判会把批注挪到不该去的地方。
+func TestCopyIsNotRename(t *testing.T) {
+	p, st := newPipeline(t)
+	root := fakeRepo(t, "proj")
+
+	body := []byte("# 标题\n\n一模一样的内容。\n")
+	a := filepath.Join(root, "甲.md")
+	b := filepath.Join(root, "乙.md")
+	if err := os.WriteFile(a, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Ingest(Source{Path: a}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Ingest(Source{Path: b}); err != nil {
+		t.Fatal(err)
+	}
+
+	var n int
+	st.DB.QueryRow(`SELECT count(*) FROM doc`).Scan(&n)
+	if n != 2 {
+		t.Errorf("原文件还在，复制出的应当是独立的一篇，库里该有 2 篇，实得 %d", n)
+	}
+}
+
+// 主动删掉的东西不该自己回来：源文件还在被监听目录里时，
+// 没有墓碑的话下次扫描原样收回，删除就成了假动作。
+func TestDeletedSourceIsNotReingested(t *testing.T) {
+	p, st := newPipeline(t)
+	root := fakeRepo(t, "proj")
+
+	f := filepath.Join(root, "不想要.md")
+	if err := os.WriteFile(f, []byte("# 标题\n\n正文。\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := p.Ingest(Source{Path: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteDoc(res.DocID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// 自动通道再扫一次：应当被墓碑挡住
+	if _, err := p.Ingest(Source{Path: f}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	st.DB.QueryRow(`SELECT count(*) FROM doc`).Scan(&n)
+	if n != 0 {
+		t.Errorf("删过的文档被自动通道收回来了，库里有 %d 篇", n)
+	}
+
+	// 显式推送应当覆盖墓碑——你亲手推的比几个月前删过更能代表当下的意图
+	if _, err := p.Ingest(Source{Path: f, Explicit: true}); err != nil {
+		t.Fatal(err)
+	}
+	st.DB.QueryRow(`SELECT count(*) FROM doc`).Scan(&n)
+	if n != 1 {
+		t.Errorf("显式推送应当把它收回来，实得 %d 篇", n)
+	}
+}

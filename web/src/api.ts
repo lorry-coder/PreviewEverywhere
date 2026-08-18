@@ -188,6 +188,15 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  // forget=true 表示不留删除标记：源文件以后再出现时还想收。
+  // 默认留标记，否则源文件还在被监听目录里的话，下次启动扫描原样收回，
+  // 删除就成了假动作。
+  deleteDoc: (id: number, forget = false) =>
+    request<{ ok: boolean; tombstone: boolean }>(
+      `/api/v1/docs/${id}${forget ? '?forget=1' : ''}`,
+      { method: 'DELETE' },
+    ),
+
   timeline: () => request<TimelineGroup[]>('/api/v1/timeline'),
 
   search: (q: string) =>

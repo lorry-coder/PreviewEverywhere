@@ -84,6 +84,28 @@ func (s *Server) handleDoc(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePatchDoc 目前只处理阅读状态。标签编辑与渲染模式切换在 P2/P4。
+// handleDeleteDoc 删掉一篇文档。
+//
+// 默认留墓碑：源文件多半还在被监听的目录里，不留的话下次扫描原样收回，
+// 删除按钮就成了假动作。带 ?forget=1 则不留——用于「我只是想清掉这条记录，
+// 以后它再出现我还想要」。
+func (s *Server) handleDeleteDoc(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathInt(w, r, "id")
+	if !ok {
+		return
+	}
+	tombstone := r.URL.Query().Get("forget") != "1"
+	if err := s.st.DeleteDoc(id, tombstone); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "文档不存在")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "tombstone": tombstone})
+}
+
 func (s *Server) handlePatchDoc(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(w, r, "id")
 	if !ok {
@@ -248,6 +270,9 @@ func parseIngestRequest(r *http.Request) (ingest.Source, error) {
 			Run         string   `json:"run"`
 			RunLabel    string   `json:"runLabel"`
 			Path        string   `json:"path"`
+			// Explicit 区分「人主动推的」和「自动通道扫到的」，
+			// 只影响是否覆盖删除墓碑。
+			Explicit bool `json:"explicit"`
 			// 跨机推送时文档引用的图片，键是文档里写的原始引用，值是 base64。
 			Assets map[string]string `json:"assets"`
 		}
@@ -259,6 +284,7 @@ func parseIngestRequest(r *http.Request) (ingest.Source, error) {
 			Project: body.Project, ProjectHint: body.ProjectHint,
 			SourceKey: body.SourceKey, Title: body.Title,
 			Tags: body.Tags, Run: body.Run, RunLabel: body.RunLabel,
+			Explicit: body.Explicit,
 		}
 		if len(body.Assets) > 0 {
 			src.Assets = make(map[string][]byte, len(body.Assets))
@@ -336,6 +362,9 @@ func applyFormFields(src *ingest.Source, r *http.Request) {
 	}
 	if v := get("projectHint"); v != "" {
 		src.ProjectHint = v
+	}
+	if v := get("explicit"); v == "1" || v == "true" {
+		src.Explicit = true
 	}
 	if v := get("run"); v != "" {
 		src.Run = v

@@ -195,10 +195,33 @@ check "改内容会新增一个版本（共 2 个版本）" "2" "$nseq"
 rm "$watched/chg.md"; sleep 2
 check "删除源文件后文档仍在（手册的说法属实）" "1" "$(count_of 变更测试)"
 
-# 手册说：改名会留下重复
+# 手册说：改名会跟随，不留重复
 printf '# 改名测试\n正文。\n' > "$watched/ren_a.md"; sleep 2
 mv "$watched/ren_a.md" "$watched/ren_b.md"; sleep 2
-check "改名后同一篇出现两份（手册的说法属实）" "2" "$(count_of 改名测试)"
+check "改名跟随，库里仍只有一篇" "1" "$(count_of 改名测试)"
+
+# 手册说：复制不是改名（原文件还在）
+printf '# 复制测试\n一样的正文。\n' > "$watched/cp_a.md"; sleep 2
+cp "$watched/cp_a.md" "$watched/cp_b.md"; sleep 2
+check "复制得到独立的两篇（原文件还在）" "2" "$(count_of 复制测试)"
+
+echo
+echo "▸ 使用手册：删除与墓碑"
+del_id=$(curl -sf "${A[@]}" "$BASE/api/v1/docs" | python3 -c '
+import json,sys
+print(next((x["id"] for x in json.load(sys.stdin) if x["title"]=="改名测试"), ""))')
+curl -sf "${A[@]}" -X DELETE "$BASE/api/v1/docs/$del_id" >/dev/null
+check "删除后列表里没有了" "0" "$(count_of 改名测试)"
+# 手册说：doc_fts 会一并清理，不会留下搜得到却打不开的幽灵
+hits(){ curl -sf "${A[@]}" "$BASE/api/v1/search?q=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$1")" \
+        | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["hits"]))'; }
+check "删除后也搜不到了（doc_fts 一并清理，无幽灵记录）" "0" "$(hits 改名测试)"
+# 手册说：默认留墓碑，源文件还在也不会被自动收回
+touch "$watched/ren_b.md"; sleep 2
+check "源文件仍在，但不会被自动收回（墓碑生效）" "0" "$(count_of 改名测试)"
+# 手册说：显式 pe push 覆盖墓碑
+"$PE" push "$watched/ren_b.md" >/dev/null 2>&1; sleep 1
+check "显式 pe push 覆盖墓碑，重新收进来" "1" "$(count_of 改名测试)"
 
 echo
 echo "▸ 使用手册：hook 与监听用同一套过滤规则"
@@ -214,11 +237,11 @@ else
 fi
 
 echo
-echo "▸ 使用手册：确实没有删除文档的接口（手册把它列为已知缺口）"
+echo "▸ 使用手册：删除走界面，不是 CLI"
 if "$PE" help | grep -qE "  pe (rm|delete|forget)"; then
-  bad "手册说没有删除命令，但它存在了 —— 手册要更新"
+  bad "手册说删除在阅读页操作，但 CLI 里也出现了删除命令 —— 手册要更新"
 else
-  ok "确实没有删除命令（手册的说法属实）"
+  ok "CLI 里没有删除命令（手册说的是在阅读页点「删除」）"
 fi
 
 echo
