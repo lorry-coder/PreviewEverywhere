@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AnnotationKind } from '../api'
 import { readSelection, type Selected } from '../annotate'
+import { placePopup } from '../popupPlacement'
 
 interface Props {
   proseRef: React.RefObject<HTMLElement | null>
@@ -9,6 +10,28 @@ interface Props {
   rebinding: { id: number; quote: string } | null
   onRebind: (sel: Selected) => Promise<void>
   onCancelRebind: () => void
+}
+
+// 触屏判据。不嗅探 UA：真正决定行为的是「有没有一个系统级的选区菜单来抢位置」，
+// 这跟输入方式有关，跟厂商无关。
+//
+// 两个条件取或而不是只看 pointer: coarse——实测有环境（Chrome 开着触摸事件模拟）
+// 报 hover: none 却报 pointer: fine。多认一条只会让「让位」这个保守行为
+// 多生效在一些桌面场景上，而漏认一条就是手机上按钮点不到。
+const TOUCH_QUERY = '(pointer: coarse), (hover: none)'
+
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(
+    () => window.matchMedia?.(TOUCH_QUERY).matches ?? false,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia?.(TOUCH_QUERY)
+    if (!mq) return
+    const onChange = () => setCoarse(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return coarse
 }
 
 const KINDS: { kind: AnnotationKind; label: string; needsBody: boolean }[] = [
@@ -36,28 +59,45 @@ export default function SelectionPopup({
   const [busy, setBusy] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // 手指正落在气泡上。iOS 点按会先把选区收掉，若跟着清空已捕获的选区，
+  // 按钮就等于按不动——这个标记专门用来跨过那一瞬间。
+  const touchingRef = useRef(false)
 
-  // 鼠标抬起与触屏长按结束都要看一眼选区。
+  const coarse = useCoarsePointer()
+
+  // 鼠标抬起、触屏长按结束、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
     const prose = proseRef.current
     if (!prose) return
+    let timer = 0
     const check = () => {
+      window.clearTimeout(timer)
       // 让浏览器先把选区结算完
-      window.setTimeout(() => {
+      timer = window.setTimeout(() => {
+        if (touchingRef.current) return
+        // 正在气泡里打字：textarea 里的光标移动也会触发 selectionchange，
+        // 不挡住的话写到一半会被自己关掉。
         if (popupRef.current?.contains(document.activeElement)) return
         const next = readSelection(prose)
-        setSel(next)
-        if (!next) {
-          setComposing(null)
-          setDraft('')
+        if (next) {
+          setSel(next)
+          return
         }
-      }, 10)
+        setSel(null)
+        setComposing(null)
+        setDraft('')
+      }, 60)
     }
     prose.addEventListener('mouseup', check)
     prose.addEventListener('touchend', check)
+    // iOS 上拖动选区把手时 touchend 不一定落在正文元素上，
+    // selectionchange 才是可靠的信号。
+    document.addEventListener('selectionchange', check)
     return () => {
+      window.clearTimeout(timer)
       prose.removeEventListener('mouseup', check)
       prose.removeEventListener('touchend', check)
+      document.removeEventListener('selectionchange', check)
     }
   }, [proseRef])
 
@@ -79,9 +119,24 @@ export default function SelectionPopup({
     ) : null
   }
 
-  // 气泡跟着选区走，但不能顶到视口外面去。
-  const top = Math.max(8, sel.rect.top - 8)
-  const left = Math.min(Math.max(12, sel.rect.left + sel.rect.width / 2), window.innerWidth - 12)
+  // 放哪儿由 popupPlacement 决定——那段逻辑最关键的约束（iOS 的系统选区菜单）
+  // 在开发机上复现不了，所以它被拆成了不碰 DOM 的纯函数，好单独验证。
+  const place = placePopup({
+    coarse,
+    composing: composing !== null,
+    selTop: sel.rect.top,
+    selBottom: sel.rect.bottom,
+    selLeft: sel.rect.left,
+    selWidth: sel.rect.width,
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+  })
+  const dockClass = place.mode === 'dock' ? ` docked ${place.edge}` : ''
+  const style: React.CSSProperties =
+    place.mode === 'dock'
+      ? place.edge === 'top'
+        ? { top: 0 }
+        : { bottom: 0 }
+      : { top: place.top, left: place.left }
 
   const submit = async (kind: AnnotationKind) => {
     setBusy(true)
@@ -98,10 +153,20 @@ export default function SelectionPopup({
 
   return (
     <div
-      className="sel-popup"
+      className={`sel-popup${dockClass}`}
       ref={popupRef}
-      style={{ top, left }}
-      onMouseDown={(e) => e.preventDefault()} // 别让点击清掉选区
+      style={style}
+      onMouseDown={(e) => e.preventDefault()} // 桌面端：别让点击清掉选区
+      // 触屏端没法靠 preventDefault 保住选区（那会连按钮的点击一起吃掉），
+      // 改成打一个标记，让选区监听在这一下点击期间不要动手。
+      onTouchStart={() => {
+        touchingRef.current = true
+      }}
+      onTouchEnd={() => {
+        window.setTimeout(() => {
+          touchingRef.current = false
+        }, 300)
+      }}
     >
       {rebinding ? (
         <div className="sel-row">

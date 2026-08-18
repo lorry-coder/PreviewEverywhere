@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# 前端两项一致性检查：
+# 前端三项检查：
 #   1) 文本规范化必须与服务端逐条一致（批注偏移的地基）
 #   2) 公式拆分必须认出块级公式（曾经因为判据写错整段被跳过）
+#   3) 划词气泡的落位（触屏上必须让开 iOS 的系统选区菜单）
 #
 # 批注的偏移在浏览器里算、在服务端存，两边各有一份 normalize 实现。
 # 它们一旦漂移，所有批注都会错位，而且错得很隐蔽——页面看着正常，
@@ -76,3 +77,61 @@ if (failed === 0) console.log(`  ✓ ${cases.length} 条公式拆分用例通过
 process.exit(failed === 0 ? 0 : 1)
 JS
 node "$TMP/rc/math.mjs" 
+
+# ── 3) 划词气泡落位 ───────────────────────────────────────────────
+# iOS 长按选中文字后系统会在选区紧邻处画出自己的编辑菜单，网页盖不住也点不到。
+# 这条约束在开发机上复现不了，所以判断逻辑被拆成了不碰 DOM 的纯函数，
+# 在这里逐条钉住——否则以后谁顺手把气泡改回「贴选区上方」，
+# 手机上就又变成点不到了，而桌面端一切正常，根本发现不了。
+(cd web && npx tsc src/popupPlacement.ts --outDir "$TMP" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022 --skipLibCheck)
+mv "$TMP/popupPlacement.js" "$TMP/popupPlacement.mjs"
+
+cat > "$TMP/place.mjs" <<'JS'
+import { placePopup } from './popupPlacement.mjs'
+
+const vp = { width: 390, height: 844 }   // iPhone 竖屏
+let bad = 0
+const check = (name, got, want) => {
+  const g = JSON.stringify(got)
+  const w = JSON.stringify(want)
+  if (g === w) console.log(`  ✓ ${name}`)
+  else { console.log(`  ✗ ${name} — 期望 ${w} 实得 ${g}`); bad++ }
+}
+
+const touch = (o) => placePopup({
+  coarse: true, composing: false,
+  selTop: 100, selBottom: 120, selLeft: 20, selWidth: 200, viewport: vp, ...o,
+})
+
+// 触屏上永远贴边，绝不浮在选区旁边——那正是系统菜单的位置
+check('触屏：选区在上半屏 → 贴底', touch({ selTop: 100, selBottom: 120 }),
+      { mode: 'dock', edge: 'bottom' })
+check('触屏：选区在下半屏 → 贴顶', touch({ selTop: 700, selBottom: 730 }),
+      { mode: 'dock', edge: 'top' })
+check('触屏：正在打字 → 一律贴顶（躲开软键盘）',
+      touch({ selTop: 100, selBottom: 120, composing: true }),
+      { mode: 'dock', edge: 'top' })
+check('触屏：选区贴着屏幕最底 → 贴顶', touch({ selTop: 820, selBottom: 840 }),
+      { mode: 'dock', edge: 'top' })
+
+// 桌面端保持原来的浮动行为
+const desktop = placePopup({
+  coarse: false, composing: false,
+  selTop: 300, selBottom: 320, selLeft: 400, selWidth: 100,
+  viewport: { width: 1440, height: 900 },
+})
+check('桌面：仍然浮在选区上方', desktop, { mode: 'float', top: 292, left: 450 })
+
+// 边界：贴着视口边缘的选区不能把气泡推到视口外
+const edge = placePopup({
+  coarse: false, composing: false,
+  selTop: 2, selBottom: 20, selLeft: 1430, selWidth: 20,
+  viewport: { width: 1440, height: 900 },
+})
+check('桌面：不会被推出视口', edge, { mode: 'float', top: 8, left: 1428 })
+
+process.exit(bad ? 1 : 0)
+JS
+node "$TMP/place.mjs" || { echo "  划词气泡落位与预期不符"; exit 1; }
+echo "  ✓ 6 条气泡落位用例通过（含 iOS 让位规则）"
