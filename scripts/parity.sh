@@ -90,7 +90,8 @@ mv "$TMP/popupPlacement.js" "$TMP/popupPlacement.mjs"
 cat > "$TMP/place.mjs" <<'JS'
 import { placePopup } from './popupPlacement.mjs'
 
-const vp = { width: 390, height: 844 }   // iPhone 竖屏
+const phone = { width: 390, height: 844 }    // iPhone 竖屏
+const desk = { width: 1440, height: 900 }
 let bad = 0
 const check = (name, got, want) => {
   const g = JSON.stringify(got)
@@ -99,39 +100,41 @@ const check = (name, got, want) => {
   else { console.log(`  ✗ ${name} — 期望 ${w} 实得 ${g}`); bad++ }
 }
 
-const touch = (o) => placePopup({
-  coarse: true, composing: false,
-  selTop: 100, selBottom: 120, selLeft: 20, selWidth: 200, viewport: vp, ...o,
+const at = (o) => placePopup({
+  coarse: false, composing: false,
+  anchorTop: 300, anchorBottom: 320, anchorLeft: 400, anchorWidth: 100,
+  popupWidth: 320, viewport: desk, ...o,
 })
 
-// 触屏上永远贴边，绝不浮在选区旁边——那正是系统菜单的位置
-check('触屏：选区在上半屏 → 贴底', touch({ selTop: 100, selBottom: 120 }),
+// 触屏／窄屏一律贴边，绝不浮在锚点旁边——那正是 iOS 系统菜单的位置
+check('触屏：锚点在上半屏 → 贴底',
+      at({ coarse: true, viewport: phone, anchorTop: 100, anchorBottom: 120 }),
       { mode: 'dock', edge: 'bottom' })
-check('触屏：选区在下半屏 → 贴顶', touch({ selTop: 700, selBottom: 730 }),
+check('触屏：锚点在下半屏 → 贴顶',
+      at({ coarse: true, viewport: phone, anchorTop: 700, anchorBottom: 730 }),
       { mode: 'dock', edge: 'top' })
 check('触屏：正在打字 → 一律贴顶（躲开软键盘）',
-      touch({ selTop: 100, selBottom: 120, composing: true }),
+      at({ coarse: true, viewport: phone, anchorTop: 100, anchorBottom: 120, composing: true }),
       { mode: 'dock', edge: 'top' })
-check('触屏：选区贴着屏幕最底 → 贴顶', touch({ selTop: 820, selBottom: 840 }),
-      { mode: 'dock', edge: 'top' })
+// 窄屏就算报告自己是鼠标设备也要贴边：320 宽的气泡在 390 的屏上必然溢出
+check('窄屏（非触屏）也贴边', at({ viewport: phone, anchorBottom: 100 }),
+      { mode: 'dock', edge: 'bottom' })
 
-// 桌面端保持原来的浮动行为
-const desktop = placePopup({
-  coarse: false, composing: false,
-  selTop: 300, selBottom: 320, selLeft: 400, selWidth: 100,
-  viewport: { width: 1440, height: 900 },
-})
-check('桌面：仍然浮在选区上方', desktop, { mode: 'float', top: 292, left: 450 })
-
-// 边界：贴着视口边缘的选区不能把气泡推到视口外
-const edge = placePopup({
-  coarse: false, composing: false,
-  selTop: 2, selBottom: 20, selLeft: 1430, selWidth: 20,
-  viewport: { width: 1440, height: 900 },
-})
-check('桌面：不会被推出视口', edge, { mode: 'float', top: 8, left: 1428 })
+// 桌面浮动：核心是永远不许有半个身子在屏幕外
+check('桌面：正常居中浮在锚点上方', at({}), { mode: 'float', top: 292, left: 450 })
+check('桌面：锚点贴最右 → 左移到刚好放得下',
+      at({ anchorLeft: 1430, anchorWidth: 10 }),
+      { mode: 'float', top: 292, left: desk.width - 8 - 160 })
+check('桌面：锚点贴最左 → 右移到刚好放得下',
+      at({ anchorLeft: 0, anchorWidth: 10 }),
+      { mode: 'float', top: 292, left: 8 + 160 })
+check('桌面：锚点贴顶 → 不越过视口上沿',
+      at({ anchorTop: 2 }), { mode: 'float', top: 8, left: 450 })
+// 极端：浮层比视口还宽时，居中是唯一说得通的选择
+check('浮层比视口还宽 → 居中',
+      at({ popupWidth: 2000 }), { mode: 'float', top: 292, left: 720 })
 
 process.exit(bad ? 1 : 0)
 JS
-node "$TMP/place.mjs" || { echo "  划词气泡落位与预期不符"; exit 1; }
-echo "  ✓ 6 条气泡落位用例通过（含 iOS 让位规则）"
+node "$TMP/place.mjs" || { echo "  浮层落位与预期不符"; exit 1; }
+echo "  ✓ 9 条浮层落位用例通过（含 iOS 让位与边缘夹紧）"

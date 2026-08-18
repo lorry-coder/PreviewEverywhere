@@ -128,6 +128,13 @@ export default function App() {
     setAnnotations((prev) => prev.filter((x) => x.id !== a.id))
   }, [])
 
+  // 改一条批注的正文。手机上是「点开高亮 → 编辑」这条路的落点；
+  // 在这之前批注写完就只能读不能改。
+  const updateAnnotationBody = useCallback(async (a: Annotation, body: string) => {
+    const updated = await api.patchAnnotation(a.id, { body })
+    setAnnotations((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+  }, [])
+
   const rebindAnnotation = useCallback(
     async (sel: Selected) => {
       if (!rebinding) return
@@ -208,6 +215,12 @@ export default function App() {
               rebinding={rebinding}
               onRebind={rebindAnnotation}
               onCancelRebind={() => setRebinding(null)}
+              onDeleteAnnotation={deleteAnnotation}
+              onUpdateAnnotationBody={updateAnnotationBody}
+              onStartRebind={(a) => {
+                setRebinding(a)
+                setActiveAnnotation(a.id)
+              }}
             />
           ) : route.name === 'timeline' ? (
             <Timeline status={status} reloadKey={reloadKey} />

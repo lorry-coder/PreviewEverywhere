@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AnnotationKind } from '../api'
 import { readSelection, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
+import { useTouchLayout } from './useTouchLayout'
 
 interface Props {
   proseRef: React.RefObject<HTMLElement | null>
@@ -10,28 +11,8 @@ interface Props {
   rebinding: { id: number; quote: string } | null
   onRebind: (sel: Selected) => Promise<void>
   onCancelRebind: () => void
-}
-
-// 触屏判据。不嗅探 UA：真正决定行为的是「有没有一个系统级的选区菜单来抢位置」，
-// 这跟输入方式有关，跟厂商无关。
-//
-// 两个条件取或而不是只看 pointer: coarse——实测有环境（Chrome 开着触摸事件模拟）
-// 报 hover: none 却报 pointer: fine。多认一条只会让「让位」这个保守行为
-// 多生效在一些桌面场景上，而漏认一条就是手机上按钮点不到。
-const TOUCH_QUERY = '(pointer: coarse), (hover: none)'
-
-function useCoarsePointer(): boolean {
-  const [coarse, setCoarse] = useState(
-    () => window.matchMedia?.(TOUCH_QUERY).matches ?? false,
-  )
-  useEffect(() => {
-    const mq = window.matchMedia?.(TOUCH_QUERY)
-    if (!mq) return
-    const onChange = () => setCoarse(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return coarse
+  /** 有没有活跃选区。外层用它避免划词气泡和批注卡片同时贴边、叠在一起。 */
+  onActiveChange?: (active: boolean) => void
 }
 
 const KINDS: { kind: AnnotationKind; label: string; needsBody: boolean }[] = [
@@ -52,6 +33,7 @@ export default function SelectionPopup({
   rebinding,
   onRebind,
   onCancelRebind,
+  onActiveChange,
 }: Props) {
   const [sel, setSel] = useState<Selected | null>(null)
   const [composing, setComposing] = useState<AnnotationKind | null>(null)
@@ -62,8 +44,11 @@ export default function SelectionPopup({
   // 手指正落在气泡上。iOS 点按会先把选区收掉，若跟着清空已捕获的选区，
   // 按钮就等于按不动——这个标记专门用来跨过那一瞬间。
   const touchingRef = useRef(false)
+  // 浮层自身的宽度。夹紧位置时必须知道它，否则「贴着视口右边」实际上是
+  // 右半个气泡已经在屏幕外了。首帧先用 CSS 里的 max-width 估一个值。
+  const [width, setWidth] = useState(320)
 
-  const coarse = useCoarsePointer()
+  const coarse = useTouchLayout()
 
   // 鼠标抬起、触屏长按结束、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
@@ -105,6 +90,17 @@ export default function SelectionPopup({
     if (composing) inputRef.current?.focus()
   }, [composing])
 
+  useEffect(() => {
+    onActiveChange?.(sel !== null)
+  }, [sel, onActiveChange])
+
+  // 量一次真实宽度。用 layout effect 是为了在浏览器绘制之前就把位置改对，
+  // 免得肉眼看到气泡先歪一下再跳回来。
+  useLayoutEffect(() => {
+    const w = popupRef.current?.getBoundingClientRect().width
+    if (w && Math.abs(w - width) > 1) setWidth(w)
+  })
+
   if (!sel) {
     return rebinding ? (
       <div className="rebind-bar">
@@ -124,10 +120,11 @@ export default function SelectionPopup({
   const place = placePopup({
     coarse,
     composing: composing !== null,
-    selTop: sel.rect.top,
-    selBottom: sel.rect.bottom,
-    selLeft: sel.rect.left,
-    selWidth: sel.rect.width,
+    anchorTop: sel.rect.top,
+    anchorBottom: sel.rect.bottom,
+    anchorLeft: sel.rect.left,
+    anchorWidth: sel.rect.width,
+    popupWidth: width,
     viewport: { width: window.innerWidth, height: window.innerHeight },
   })
   const dockClass = place.mode === 'dock' ? ` docked ${place.edge}` : ''

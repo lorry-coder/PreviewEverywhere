@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
   AuthError,
+  KIND_LABEL,
   parseTOC,
   type Annotation,
   type AnnotationKind,
@@ -12,6 +13,7 @@ import {
 } from '../api'
 import type { Selected } from '../annotate'
 import AnnotationLayer from '../components/AnnotationLayer'
+import AnnotationPopup from '../components/AnnotationPopup'
 import SelectionPopup from '../components/SelectionPopup'
 import TagEditor from '../components/TagEditor'
 import { readingTime, relativeTime, spaceCJK } from '../format'
@@ -38,6 +40,9 @@ interface Props {
   rebinding: Annotation | null
   onRebind: (sel: Selected) => Promise<void>
   onCancelRebind: () => void
+  onDeleteAnnotation: (a: Annotation) => Promise<void> | void
+  onUpdateAnnotationBody: (a: Annotation, body: string) => Promise<void>
+  onStartRebind: (a: Annotation) => void
 }
 
 export default function Reader(props: Props) {
@@ -49,6 +54,9 @@ export default function Reader(props: Props) {
   // 图表和公式是异步渲染的，画完之后文字重排，高亮层必须重算一次。
   const [richReady, setRichReady] = useState(0)
   const bodyRef = useRef<HTMLDivElement>(null)
+  // 正在划词。两个浮层都会贴到屏幕边缘，同时出现就是叠在一起，
+  // 谁也点不准——划词优先，它是当下正在进行的动作。
+  const [selecting, setSelecting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -129,6 +137,7 @@ export default function Reader(props: Props) {
   const toc = parseTOC(doc.toc)
   const isRaw = doc.renderMode === 'raw'
   const headVersion = doc.versions[0]
+  const activeAnn = annotations.find((a) => a.id === props.activeAnnotation) ?? null
 
   return (
     <div className="reader">
@@ -225,6 +234,19 @@ export default function Reader(props: Props) {
             activeId={props.activeAnnotation}
             onPick={props.onPickAnnotation}
           />
+          {/* 点开一条已有批注：看内容、改、删。
+              右栏在 900px 以下是隐藏的，没有这个卡片，手机上写完一条笔记
+              就再也看不到它，高亮也没法取消。 */}
+          {activeAnn && !props.rebinding && !selecting && (
+            <AnnotationPopup
+              annotation={activeAnn}
+              proseRef={bodyRef}
+              onClose={() => props.onPickAnnotation(null)}
+              onDelete={props.onDeleteAnnotation}
+              onSaveBody={props.onUpdateAnnotationBody}
+              onStartRebind={props.onStartRebind}
+            />
+          )}
           <SelectionPopup
             proseRef={bodyRef}
             onCreate={(sel, kind, body) => props.onCreateAnnotation(doc.id, sel, kind, body)}
@@ -233,11 +255,12 @@ export default function Reader(props: Props) {
             }
             onRebind={props.onRebind}
             onCancelRebind={props.onCancelRebind}
+            onActiveChange={setSelecting}
           />
         </div>
       )}
 
-      {toc.length > 0 && <MobileTOCAnchor toc={toc} />}
+      <MobileAnchor toc={toc} annotations={annotations} onPick={props.onPickAnnotation} />
     </div>
   )
 }
@@ -423,24 +446,102 @@ function useReadingProgress(
 }
 
 /** 窄屏没有右侧大纲栏，把目录折叠到正文末尾。 */
-function MobileTOCAnchor({ toc }: { toc: Heading[] }) {
-  const [open, setOpen] = useState(false)
-  if (window.innerWidth > 900) return null
+/**
+ * 窄屏下的目录与批注入口。
+ *
+ * 右栏（大纲 + 批注）在 900px 以下整个 display:none，所以手机上必须
+ * 另开一个口子。放在正文末尾是因为它更像「读完之后回看」的动作；
+ * 单条批注的即时查看走点高亮弹卡片那条路。
+ */
+function MobileAnchor({
+  toc,
+  annotations,
+  onPick,
+}: {
+  toc: Heading[]
+  annotations: Annotation[]
+  onPick: (id: number) => void
+}) {
+  const [open, setOpen] = useState<'toc' | 'ann' | null>(null)
+  const narrow = useNarrowViewport()
+  if (!narrow) return null
+  const live = annotations.filter((a) => a.state !== 'orphan')
+  if (toc.length === 0 && annotations.length === 0) return null
 
   return (
-    <div style={{ marginTop: 40, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-      <button className="text-btn" onClick={() => setOpen(!open)}>
-        {open ? '收起目录' : `目录（${toc.length}）`}
-      </button>
-      {open && (
-        <div style={{ marginTop: 10 }}>
+    <div className="mobile-anchor">
+      <div className="sel-row">
+        {toc.length > 0 && (
+          <button
+            className={`text-btn${open === 'toc' ? ' on' : ''}`}
+            onClick={() => setOpen(open === 'toc' ? null : 'toc')}
+          >
+            目录（{toc.length}）
+          </button>
+        )}
+        {annotations.length > 0 && (
+          <button
+            className={`text-btn${open === 'ann' ? ' on' : ''}`}
+            onClick={() => setOpen(open === 'ann' ? null : 'ann')}
+          >
+            我的批注（{annotations.length}）
+          </button>
+        )}
+      </div>
+
+      {open === 'toc' && (
+        <div className="mobile-anchor-body">
           {toc.map((h) => (
             <TOCItem key={h.blk} heading={h} />
           ))}
         </div>
       )}
+
+      {open === 'ann' && (
+        <div className="mobile-anchor-body">
+          {annotations.map((a) => (
+            <button
+              key={a.id}
+              className={`ann-item k-${a.kind}`}
+              onClick={() => {
+                onPick(a.id)
+                document
+                  .querySelector(`[data-blk="${CSS.escape(a.blk)}"]`)
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }}
+            >
+              <div className="ann-quote">{a.quote}</div>
+              {a.body && <div className="ann-body">{a.body}</div>}
+              <div className="ann-meta">
+                <span className="ann-kind">{KIND_LABEL[a.kind]}</span>
+                {a.state === 'orphan' && <span className="ann-moved">原文已消失</span>}
+              </div>
+            </button>
+          ))}
+          {live.length !== annotations.length && (
+            <div className="ann-orphan-tip">
+              「原文已消失」的批注内容都留着，点开可以删掉或重挂。
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
+}
+
+/** 窄屏判断。原先写成渲染时读一次 window.innerWidth，转屏之后不会更新。 */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => window.matchMedia?.('(max-width: 900px)').matches ?? false,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 900px)')
+    if (!mq) return
+    const onChange = () => setNarrow(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return narrow
 }
 
 export function TOCItem({ heading }: { heading: Heading }) {
