@@ -120,7 +120,10 @@ export default function App() {
         exact: sel.exact,
       })
       setAnnotations((prev) => [...prev, created])
-      setActiveAnnotation(created.id)
+      // 刻意不选中它。以前选中只是给高亮加个强调样式，无伤大雅；
+      // 现在选中会弹出批注卡片，于是「划词 → 点高亮」之后会立刻冒出一张
+      // 写着「这条只有高亮，没有写内容」的卡片挡在正文上。
+      // 高亮本身出现就是足够的确认了。
     },
     [],
   )

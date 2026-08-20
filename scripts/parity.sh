@@ -177,3 +177,52 @@ process.exit(bad ? 1 : 0)
 JS
 node "$TMP/stale.mjs" || { echo "  旧前端检测逻辑与预期不符"; exit 1; }
 echo "  ✓ 5 条旧前端检测用例通过"
+
+# ── 5) 划词气泡的宽限期 ───────────────────────────────────────────
+# 这段逻辑保护的是「iOS 点按会先收掉选区再派发点击」这一瞬间，
+# 但它自己曾经是个能永久卡死的布尔量：只要 touchend 没来（手指滑开、
+# 被滚动打断、touchcancel），气泡就再也不会消失，指向一个早已不存在的
+# 选区——现象就是「屏幕上没有选中标记，气泡却弹出来了」。
+# 所以这里钉住的核心不变量只有一条：宽限期一定会到期。
+(cd web && npx tsc src/touchGrace.ts --outDir "$TMP" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022 --skipLibCheck)
+mv "$TMP/touchGrace.js" "$TMP/touchGrace.mjs"
+
+cat > "$TMP/grace.mjs" <<'JS'
+import {
+  GRACE_AFTER_START, GRACE_AFTER_END,
+  graceOnStart, graceOnEnd, inGrace, checkDelay,
+} from './touchGrace.mjs'
+
+let bad = 0
+const check = (name, got, want) => {
+  if (got === want) console.log(`  ✓ ${name}`)
+  else { console.log(`  ✗ ${name} — 期望 ${want} 实得 ${got}`); bad++ }
+}
+
+const T = 1_000_000
+
+// 只有 touchstart、touchend 永远不来：这是曾经卡死气泡的那条路径
+const started = graceOnStart(T)
+check('按下后处于宽限期', inGrace(T + 10, started), true)
+check('按下后 1199ms 仍在宽限期', inGrace(T + GRACE_AFTER_START - 1, started), true)
+check('按下后到点就失效（touchend 没来也一样）',
+      inGrace(T + GRACE_AFTER_START, started), false)
+check('按下后很久必然失效', inGrace(T + 60_000, started), false)
+
+// 抬起后只需跨过「收选区 → 派发 click」这一小段
+const ended = graceOnEnd(T)
+check('抬起后仍有短暂宽限', inGrace(T + GRACE_AFTER_END - 1, ended), true)
+check('抬起后到点失效', inGrace(T + GRACE_AFTER_END, ended), false)
+check('抬起的宽限短于按下的宽限', GRACE_AFTER_END < GRACE_AFTER_START, true)
+
+// 宽限期内的检查要被推迟，而不是丢掉
+check('宽限期内 → 推迟到宽限期之后', checkDelay(T, T + 500), 500)
+check('不在宽限期 → 用最小延迟', checkDelay(T, 0), 60)
+check('宽限期已过 → 用最小延迟', checkDelay(T, T - 999), 60)
+check('延迟不会超过宽限上限', checkDelay(T, graceOnStart(T)) <= GRACE_AFTER_START, true)
+
+process.exit(bad ? 1 : 0)
+JS
+node "$TMP/grace.mjs" || { echo "  宽限期逻辑与预期不符"; exit 1; }
+echo "  ✓ 11 条宽限期用例通过（核心：宽限期一定会到期）"

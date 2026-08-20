@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AnnotationKind } from '../api'
 import { readSelection, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
+import { checkDelay, graceOnEnd, graceOnStart, inGrace } from '../touchGrace'
 import { useTouchLayout } from './useTouchLayout'
 import { useVisualViewport } from './useVisualViewport'
 
@@ -42,15 +43,32 @@ export default function SelectionPopup({
   const [busy, setBusy] = useState(false)
   const popupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  // 手指正落在气泡上。iOS 点按会先把选区收掉，若跟着清空已捕获的选区，
-  // 按钮就等于按不动——这个标记专门用来跨过那一瞬间。
-  const touchingRef = useRef(false)
+  // 手指落在气泡上时的宽限期截止时间戳，语义见 touchGrace.ts。
+  const graceUntilRef = useRef(0)
+
   // 浮层自身的尺寸。夹紧位置时必须知道它，否则「贴着视口右边」实际上是
   // 右半个气泡已经在屏幕外了。首帧先估一个值，量到真值再校正。
   const [size, setSize] = useState({ width: 260, height: 44 })
 
   const coarse = useTouchLayout()
   const vv = useVisualViewport()
+
+  // 读一次当前选区并据此更新气泡。
+  const evaluate = useCallback(() => {
+    const prose = proseRef.current
+    if (!prose) return
+    // 正在气泡里打字：textarea 里的光标移动也会触发 selectionchange，
+    // 不挡住的话写到一半会被自己关掉。
+    if (popupRef.current?.contains(document.activeElement)) return
+    const next = readSelection(prose)
+    if (next) {
+      setSel(next)
+      return
+    }
+    setSel(null)
+    setComposing(null)
+    setDraft('')
+  }, [proseRef])
 
   // 鼠标抬起、触屏长按结束、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
@@ -59,34 +77,41 @@ export default function SelectionPopup({
     let timer = 0
     const check = () => {
       window.clearTimeout(timer)
-      // 让浏览器先把选区结算完
-      timer = window.setTimeout(() => {
-        if (touchingRef.current) return
-        // 正在气泡里打字：textarea 里的光标移动也会触发 selectionchange，
-        // 不挡住的话写到一半会被自己关掉。
-        if (popupRef.current?.contains(document.activeElement)) return
-        const next = readSelection(prose)
-        if (next) {
-          setSel(next)
-          return
-        }
-        setSel(null)
-        setComposing(null)
-        setDraft('')
-      }, 60)
+      // 处在宽限期内就把这次判断推迟到宽限期之后，而不是丢掉它。
+      // 丢掉的话，那一次「选区没了」就永远没人再管了。
+      timer = window.setTimeout(evaluate, checkDelay(Date.now(), graceUntilRef.current))
     }
     prose.addEventListener('mouseup', check)
-    prose.addEventListener('touchend', check)
+    // 手指抬起未必落在正文上（比如抬在系统菜单或空白处），所以挂在 document 上。
+    document.addEventListener('touchend', check)
+    document.addEventListener('touchcancel', check)
     // iOS 上拖动选区把手时 touchend 不一定落在正文元素上，
     // selectionchange 才是可靠的信号。
     document.addEventListener('selectionchange', check)
     return () => {
       window.clearTimeout(timer)
       prose.removeEventListener('mouseup', check)
-      prose.removeEventListener('touchend', check)
+      document.removeEventListener('touchend', check)
+      document.removeEventListener('touchcancel', check)
       document.removeEventListener('selectionchange', check)
     }
-  }, [proseRef])
+  }, [proseRef, evaluate])
+
+  // 气泡出现之后再回头确认一次。
+  //
+  // iOS 有时会在长按过程中先产生一个选区、随后又把它收掉，而收掉这一下
+  // 不一定触发 selectionchange。结果就是屏幕上没有任何选中标记，
+  // 气泡却留在那里，指向一个已经不存在的选区。没有这道复核就没人纠正它。
+  //
+  // 300ms 是让 iOS 把长按手势结算完；正在拖选区把手时选区还在，复核是空操作。
+  useEffect(() => {
+    if (!sel) return
+    const t = window.setTimeout(() => {
+      if (inGrace(Date.now(), graceUntilRef.current)) return
+      evaluate()
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [sel, evaluate])
 
   useEffect(() => {
     if (composing) inputRef.current?.focus()
@@ -157,12 +182,13 @@ export default function SelectionPopup({
       // 触屏端没法靠 preventDefault 保住选区（那会连按钮的点击一起吃掉），
       // 改成打一个标记，让选区监听在这一下点击期间不要动手。
       onTouchStart={() => {
-        touchingRef.current = true
+        graceUntilRef.current = graceOnStart(Date.now())
       }}
       onTouchEnd={() => {
-        window.setTimeout(() => {
-          touchingRef.current = false
-        }, 300)
+        graceUntilRef.current = graceOnEnd(Date.now())
+      }}
+      onTouchCancel={() => {
+        graceUntilRef.current = graceOnEnd(Date.now())
       }}
     >
       {rebinding ? (
