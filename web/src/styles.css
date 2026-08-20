@@ -1380,16 +1380,58 @@ html[data-theme='dark'] .ann-rect,
 }
 
 /* ── 划词气泡 ────────────────────────────────────────────────── */
+/* 划词气泡。位置整个由 JS 算好后以 top/left 给出（见 popupPlacement.ts）：
+   要同时躲开 iOS 的系统选区菜单、底部地址栏和屏幕左右边缘，光靠 CSS 做不到。
+   所以这里绝不能再加 transform 去挪它——挪了就绕过那套夹紧逻辑，
+   气泡又会跑到屏幕外面去（实测左边缘会到 -38px）。 */
 .sel-popup {
   position: fixed;
-  transform: translate(-50%, -100%);
   z-index: 60;
   background: var(--surface);
   border: 1px solid var(--border-2);
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
   padding: 6px;
   max-width: min(92vw, 320px);
+}
+
+/* 触屏上手指的落点比鼠标大得多，按钮要撑开；
+   而且触屏没有 hover，可点的线索必须常驻，否则就是几个看不出能点的词。 */
+.sel-popup.touch {
+  padding: 7px;
+}
+
+.sel-popup.touch .sel-row {
+  gap: 6px;
+}
+
+.sel-popup.touch .sel-btn {
+  font-size: 14px;
+  padding: 8px 13px;
+  min-height: 38px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.sel-popup.touch .sel-btn.k-highlight { color: var(--k-highlight); }
+.sel-popup.touch .sel-btn.k-note { color: var(--k-note); }
+.sel-popup.touch .sel-btn.k-todo { color: var(--k-todo); }
+.sel-popup.touch .sel-btn.k-question { color: var(--k-question); }
+
+.sel-popup.touch .sel-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.sel-popup.touch .sel-btn.danger {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--border-2));
+}
+
+.sel-popup.touch .sel-btn:active {
+  transform: scale(0.96);
 }
 
 /* ── 环境自查页 ─────────────────────────────────────────────── */
@@ -1434,6 +1476,19 @@ html[data-theme='dark'] .ann-rect,
   margin-top: 24px;
 }
 
+/* 自查页里那个气泡样品要就地显示，不能跟着真气泡一起 fixed 定位。 */
+.diag-bubble {
+  position: relative;
+  margin-top: 12px;
+  min-height: 60px;
+}
+
+.diag-bubble .sel-popup {
+  position: static;
+  display: inline-block;
+  box-shadow: none;
+}
+
 /* 旧前端提示条。放在顶栏下面、内容上面——它讲的是「你看到的整个界面
    都是过期的」，藏在角落里没有意义。 */
 .stale-banner {
@@ -1462,11 +1517,6 @@ html[data-theme='dark'] .ann-rect,
   gap: 8px;
   padding: 12px 14px;
   width: 100%;
-}
-
-.ann-popup.docked .ann-popup-inner {
-  max-width: 560px;
-  margin: 0 auto;
 }
 
 .ann-popup-head {
@@ -1515,7 +1565,8 @@ html[data-theme='dark'] .ann-rect,
   color: var(--text-3);
 }
 
-.ann-popup textarea {
+.ann-popup textarea,
+.sel-popup.touch textarea {
   width: 100%;
   font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
   line-height: 1.6;
@@ -1536,7 +1587,7 @@ html[data-theme='dark'] .ann-rect,
   color: var(--warn);
 }
 
-.sel-popup.docked .sel-btn.danger {
+.sel-popup.touch .sel-btn.danger {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 50%, var(--border-2));
 }
@@ -1580,74 +1631,10 @@ html[data-theme='dark'] .ann-rect,
   opacity: 0.5;
 }
 
-/* 触屏上贴到视口边缘，躲开系统自己的选区菜单。
-   iOS 长按选中文字后，系统会在选区紧邻处画出「拷贝／查询／翻译」，
-   那是系统层的东西，网页既盖不住也收不到落在它上面的点击——
-   跟它抢位置是抢不赢的，只能让开。 */
-.sel-popup.docked {
-  left: 0;
-  right: 0;
-  transform: none;
-  max-width: none;
-  border-radius: 0;
-  padding: 10px 14px;
-  display: flex;
-  justify-content: center;
-}
-
-.sel-popup.docked.bottom {
-  border-width: 1px 0 0;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.16);
-  /* 刘海屏底部的手势条会吃掉一截，加上安全区才点得到。 */
-  padding-bottom: calc(10px + env(safe-area-inset-bottom));
-}
-
-.sel-popup.docked.top {
-  border-width: 0 0 1px;
-  padding-top: calc(10px + env(safe-area-inset-top));
-}
-
-/* 贴边之后按钮要撑开一点：手指的落点比鼠标大得多。 */
-.sel-popup.docked .sel-row {
+.sel-row {
   gap: 10px;
 }
 
-.sel-popup.docked .sel-btn {
-  font-size: 14px;
-  padding: 9px 16px;
-  min-height: 40px; /* 够手指点 */
-  /* 桌面端这些按钮的「可点」全靠 :hover，而触屏根本不触发 hover——
-     贴边之后就是屏幕边上四个看不出能点的词。所以这里必须常驻描边。 */
-  border: 1px solid var(--border-2);
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-/* 类型色同理：原先只在 :hover 里给，触屏上永远看不到。 */
-.sel-popup.docked .sel-btn.k-highlight { color: var(--k-highlight); }
-.sel-popup.docked .sel-btn.k-note { color: var(--k-note); }
-.sel-popup.docked .sel-btn.k-todo { color: var(--k-todo); }
-.sel-popup.docked .sel-btn.k-question { color: var(--k-question); }
-
-.sel-popup.docked .sel-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-/* 触屏没有 hover，按下时给一点反馈，否则不知道点没点到。 */
-.sel-popup.docked .sel-btn:active {
-  transform: scale(0.96);
-}
-
-.sel-popup.docked .sel-compose {
-  width: 100%;
-  max-width: 520px;
-}
-
-.sel-popup.docked textarea {
-  font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
-}
 
 .sel-row {
   display: flex;

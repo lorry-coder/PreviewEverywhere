@@ -31,7 +31,7 @@ export default function Diag({ status }: { status: Status | null }) {
     ['前端版本（浏览器在跑）', loaded || '(开发模式)'],
     ['前端版本（服务端携带）', serverBuild],
     ['是否在跑旧缓存', stale ? '是 —— 点下面的按钮更新' : '否', stale],
-    ['贴边布局是否启用', coarse ? '是' : '否 —— 浮层会跟着选区走', !coarse],
+    ['是否触屏', coarse ? '是 —— 气泡会给系统菜单让位' : '否 —— 气泡浮在选区上方', !coarse],
     ['pointer: coarse', mq('(pointer: coarse)')],
     ['hover: none', mq('(hover: none)')],
     ['布局视口', `${window.innerWidth} × ${window.innerHeight}`],
@@ -73,16 +73,19 @@ export default function Diag({ status }: { status: Status | null }) {
 
       <div className="diag-probe">
         <p className="page-sub">
-          下面这条模拟贴边的操作条。<b>如果它被浏览器地址栏或系统菜单挡住了，
-          那就是问题所在</b>——把这句话连同上面的「底部被遮挡」数值告诉我。
+          下面是划词气泡的样子。真正的那个会贴着你选中的文字出现，并主动避开
+          iOS 画在选区旁边的系统菜单。<b>如果实际使用时它被什么东西挡住了，
+          把上面「底部被遮挡」的数值一起告诉我。</b>
         </p>
-      </div>
-      <div className="sel-popup docked bottom" style={{ bottom: vv.bottom }}>
-        <div className="sel-row">
-          <button className="sel-btn k-highlight">高亮</button>
-          <button className="sel-btn k-note">笔记</button>
-          <button className="sel-btn k-todo">待办</button>
-          <button className="sel-btn k-question">疑问</button>
+        <div className="diag-bubble">
+          <div className={`sel-popup side-below${coarse ? ' touch' : ''}`}>
+            <div className="sel-row">
+              <button className="sel-btn k-highlight">高亮</button>
+              <button className="sel-btn k-note">笔记</button>
+              <button className="sel-btn k-todo">待办</button>
+              <button className="sel-btn k-question">疑问</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

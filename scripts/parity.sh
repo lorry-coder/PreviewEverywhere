@@ -90,54 +90,66 @@ mv "$TMP/popupPlacement.js" "$TMP/popupPlacement.mjs"
 cat > "$TMP/place.mjs" <<'JS'
 import { placePopup } from './popupPlacement.mjs'
 
-const phone = { width: 390, height: 844 }    // iPhone 竖屏
-const desk = { width: 1440, height: 900 }
 let bad = 0
 const check = (name, got, want) => {
-  const g = JSON.stringify(got)
-  const w = JSON.stringify(want)
+  const g = JSON.stringify(got), w = JSON.stringify(want)
   if (g === w) console.log(`  ✓ ${name}`)
   else { console.log(`  ✗ ${name} — 期望 ${w} 实得 ${g}`); bad++ }
 }
 
+// iPhone 竖屏，顶部让 44 给 Safari 的地址栏收起态，底部让 60 给底部地址栏
+const phoneView = { top: 44, bottom: 784, width: 390 }
 const at = (o) => placePopup({
-  coarse: false, composing: false,
-  anchorTop: 300, anchorBottom: 320, anchorLeft: 400, anchorWidth: 100,
-  popupWidth: 320, viewport: desk, ...o,
+  anchorTop: 300, anchorBottom: 320, anchorLeft: 100, anchorWidth: 120,
+  popupWidth: 240, popupHeight: 44,
+  view: phoneView, avoidSystemMenu: true, ...o,
 })
 
-// 触屏／窄屏一律贴边，绝不浮在锚点旁边——那正是 iOS 系统菜单的位置
-check('触屏：锚点在上半屏 → 贴底',
-      at({ coarse: true, viewport: phone, anchorTop: 100, anchorBottom: 120 }),
-      { mode: 'dock', edge: 'bottom' })
-check('触屏：锚点在下半屏 → 贴顶',
-      at({ coarse: true, viewport: phone, anchorTop: 700, anchorBottom: 730 }),
-      { mode: 'dock', edge: 'top' })
-check('触屏：正在打字 → 一律贴顶（躲开软键盘）',
-      at({ coarse: true, viewport: phone, anchorTop: 100, anchorBottom: 120, composing: true }),
-      { mode: 'dock', edge: 'top' })
-// 窄屏就算报告自己是鼠标设备也要贴边：320 宽的气泡在 390 的屏上必然溢出
-check('窄屏（非触屏）也贴边', at({ viewport: phone, anchorBottom: 100 }),
-      { mode: 'dock', edge: 'bottom' })
+// ── 触屏：核心是永远不跟 iOS 的系统菜单抢同一块地方 ──
+// 选区在屏幕中部 → 系统菜单在选区上方 → 气泡走下方，只留正常间隙
+check('触屏：选区居中 → 落在选区下方', at({}).side, 'below')
+check('触屏：选区居中 → 紧贴选区下沿', at({}).top, 330)
 
-// 桌面浮动：核心是永远不许有半个身子在屏幕外
-check('桌面：正常居中浮在锚点上方', at({}), { mode: 'float', top: 292, left: 450 })
-check('桌面：锚点贴最右 → 左移到刚好放得下',
-      at({ anchorLeft: 1430, anchorWidth: 10 }),
-      { mode: 'float', top: 292, left: desk.width - 8 - 160 })
-check('桌面：锚点贴最左 → 右移到刚好放得下',
-      at({ anchorLeft: 0, anchorWidth: 10 }),
-      { mode: 'float', top: 292, left: 8 + 160 })
-check('桌面：锚点贴顶 → 不越过视口上沿',
-      at({ anchorTop: 2 }), { mode: 'float', top: 8, left: 450 })
-// 极端：浮层比视口还宽时，居中是唯一说得通的选择
-check('浮层比视口还宽 → 居中',
-      at({ popupWidth: 2000 }), { mode: 'float', top: 292, left: 720 })
+// 选区贴近可见区域顶端 → 系统菜单塞不下、翻到选区下方 → 气泡要排在菜单后面
+const nearTop = at({ anchorTop: 60, anchorBottom: 80 })
+check('触屏：选区贴顶 → 仍在下方', nearTop.side, 'below')
+check('触屏：选区贴顶 → 让开系统菜单的高度', nearTop.top, 80 + 10 + 56)
+
+// 选区贴近可见区域底端 → 下方放不下 → 翻到上方，并让开上方的系统菜单
+// 760 + 10 + 44 = 814，超过可见区域下沿 784，所以必须翻上去
+const nearBottom = at({ anchorTop: 740, anchorBottom: 760 })
+check('触屏：选区贴底 → 翻到上方', nearBottom.side, 'above')
+check('触屏：选区贴底 → 让开上方的系统菜单', nearBottom.top, 740 - 10 - 44 - 56)
+
+// ── 可见区域：底部地址栏吃掉的高度必须算数 ──
+// 同一个选区，可见区域底端从 784 收到 600，气泡不许越过 600
+const shrunk = placePopup({
+  anchorTop: 560, anchorBottom: 580, anchorLeft: 100, anchorWidth: 120,
+  popupWidth: 240, popupHeight: 44,
+  view: { top: 44, bottom: 600, width: 390 }, avoidSystemMenu: true,
+})
+check('触屏：气泡不越过可见区域下沿', shrunk.top + 44 <= 600 - 8, true)
+
+// ── 水平方向：绝不许半个身子在屏幕外 ──
+check('选区贴最右 → 左移到刚好放得下', at({ anchorLeft: 380, anchorWidth: 10 }).left, 390 - 8 - 240)
+check('选区贴最左 → 右移到刚好放得下', at({ anchorLeft: 0, anchorWidth: 10 }).left, 8)
+check('气泡比屏幕还宽 → 贴左边', at({ popupWidth: 600 }).left, 8)
+
+// ── 桌面：保持原来的手感，气泡浮在选区上方 ──
+const desk = { top: 0, bottom: 900, width: 1440 }
+const d = (o) => placePopup({
+  anchorTop: 300, anchorBottom: 320, anchorLeft: 400, anchorWidth: 100,
+  popupWidth: 240, popupHeight: 44, view: desk, avoidSystemMenu: false, ...o,
+})
+check('桌面：浮在选区上方', d({}).side, 'above')
+check('桌面：不给系统菜单让位（那是触屏才有的）', d({}).top, 300 - 10 - 44)
+check('桌面：选区贴顶 → 翻到下方', d({ anchorTop: 10, anchorBottom: 30 }).side, 'below')
+check('桌面：居中对齐', d({}).left, 450 - 120)
 
 process.exit(bad ? 1 : 0)
 JS
-node "$TMP/place.mjs" || { echo "  浮层落位与预期不符"; exit 1; }
-echo "  ✓ 9 条浮层落位用例通过（含 iOS 让位与边缘夹紧）"
+node "$TMP/place.mjs" || { echo "  气泡落位与预期不符"; exit 1; }
+echo "  ✓ 14 条气泡落位用例通过（含 iOS 让位、可见区域与边缘夹紧）"
 
 # ── 4) 旧前端检测 ─────────────────────────────────────────────────
 # 「服务端已经更新了，但手机上看到的还是旧界面」这件事此前完全不可见，

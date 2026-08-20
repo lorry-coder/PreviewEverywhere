@@ -36,7 +36,7 @@ export default function AnnotationPopup({
   const [confirmDel, setConfirmDel] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const [size, setSize] = useState({ width: 320 })
+  const [size, setSize] = useState({ width: 280, height: 140 })
 
   const coarse = useTouchLayout()
   const vv = useVisualViewport()
@@ -53,8 +53,11 @@ export default function AnnotationPopup({
   }, [editing])
 
   useLayoutEffect(() => {
-    const w = boxRef.current?.getBoundingClientRect().width
-    if (w && Math.abs(w - size.width) > 1) setSize({ width: w })
+    const r = boxRef.current?.getBoundingClientRect()
+    if (!r) return
+    if (Math.abs(r.width - size.width) > 1 || Math.abs(r.height - size.height) > 1) {
+      setSize({ width: r.width, height: r.height })
+    }
   })
 
   // 点到别处就收起来。用 pointerdown 而不是 click：iOS 上点空白处会先
@@ -68,32 +71,24 @@ export default function AnnotationPopup({
     return () => document.removeEventListener('pointerdown', onDown)
   }, [onClose])
 
-  // 锚点用批注自己的高亮矩形。失联批注在正文里没有位置，退回视口中部，
-  // 触屏上反正是贴边的，桌面端也总比定位到 (0,0) 强。
+  // 锚点用批注自己的高亮矩形。失联批注在正文里没有位置可指，
+  // 退回可见区域中部——总比定位到 (0,0) 强。
   const prose = proseRef.current
   const rects = prose
     ? rectsForAnnotation(prose, annotation.blk, annotation.startOff, annotation.endOff)
     : []
   const anchor = rects[0]
   const place = placePopup({
-    coarse,
-    composing: editing,
     anchorTop: anchor?.top ?? window.innerHeight / 2,
     anchorBottom: anchor?.bottom ?? window.innerHeight / 2,
     anchorLeft: anchor?.left ?? window.innerWidth / 2,
     anchorWidth: anchor?.width ?? 0,
     popupWidth: size.width,
-    viewport: { width: window.innerWidth, height: window.innerHeight },
+    popupHeight: size.height,
+    view: { top: vv.top, bottom: vv.top + vv.height, width: window.innerWidth },
+    avoidSystemMenu: coarse,
   })
-  const dockClass = place.mode === 'dock' ? ` docked ${place.edge}` : ''
-  const style: React.CSSProperties =
-    place.mode === 'dock'
-      ? place.edge === 'top'
-        ? { top: vv.top }
-        : // 不是 bottom: 0。iOS 15 起 Safari 的地址栏在屏幕底部，
-          // 软键盘升起时也一样——死贴 0 会让整条躲到它们后面去。
-          { bottom: vv.bottom }
-      : { top: place.top, left: place.left }
+  const style: React.CSSProperties = { top: place.top, left: place.left }
 
   const save = async () => {
     setBusy(true)
@@ -108,7 +103,11 @@ export default function AnnotationPopup({
   const hasBody = (annotation.body ?? '').trim() !== ''
 
   return (
-    <div className={`sel-popup ann-popup${dockClass}`} ref={boxRef} style={style}>
+    <div
+      className={`sel-popup ann-popup side-${place.side}${coarse ? ' touch' : ''}`}
+      ref={boxRef}
+      style={style}
+    >
       <div className="ann-popup-inner">
         <div className="ann-popup-head">
           <span className={`chip k-${annotation.kind}`}>{KIND_LABEL[annotation.kind]}</span>

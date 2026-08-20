@@ -45,9 +45,9 @@ export default function SelectionPopup({
   // 手指正落在气泡上。iOS 点按会先把选区收掉，若跟着清空已捕获的选区，
   // 按钮就等于按不动——这个标记专门用来跨过那一瞬间。
   const touchingRef = useRef(false)
-  // 浮层自身的宽度。夹紧位置时必须知道它，否则「贴着视口右边」实际上是
-  // 右半个气泡已经在屏幕外了。首帧先用 CSS 里的 max-width 估一个值。
-  const [width, setWidth] = useState(320)
+  // 浮层自身的尺寸。夹紧位置时必须知道它，否则「贴着视口右边」实际上是
+  // 右半个气泡已经在屏幕外了。首帧先估一个值，量到真值再校正。
+  const [size, setSize] = useState({ width: 260, height: 44 })
 
   const coarse = useTouchLayout()
   const vv = useVisualViewport()
@@ -96,11 +96,14 @@ export default function SelectionPopup({
     onActiveChange?.(sel !== null)
   }, [sel, onActiveChange])
 
-  // 量一次真实宽度。用 layout effect 是为了在浏览器绘制之前就把位置改对，
+  // 量一次真实尺寸。用 layout effect 是为了在浏览器绘制之前就把位置改对，
   // 免得肉眼看到气泡先歪一下再跳回来。
   useLayoutEffect(() => {
-    const w = popupRef.current?.getBoundingClientRect().width
-    if (w && Math.abs(w - width) > 1) setWidth(w)
+    const r = popupRef.current?.getBoundingClientRect()
+    if (!r) return
+    if (Math.abs(r.width - size.width) > 1 || Math.abs(r.height - size.height) > 1) {
+      setSize({ width: r.width, height: r.height })
+    }
   })
 
   if (!sel) {
@@ -117,27 +120,20 @@ export default function SelectionPopup({
     ) : null
   }
 
-  // 放哪儿由 popupPlacement 决定——那段逻辑最关键的约束（iOS 的系统选区菜单）
-  // 在开发机上复现不了，所以它被拆成了不碰 DOM 的纯函数，好单独验证。
+  // 放哪儿由 popupPlacement 决定——那段逻辑最关键的两条约束
+  // （iOS 的系统选区菜单、底部地址栏）在开发机上复现不了，
+  // 所以它被拆成了不碰 DOM 的纯函数，好单独验证。
   const place = placePopup({
-    coarse,
-    composing: composing !== null,
     anchorTop: sel.rect.top,
     anchorBottom: sel.rect.bottom,
     anchorLeft: sel.rect.left,
     anchorWidth: sel.rect.width,
-    popupWidth: width,
-    viewport: { width: window.innerWidth, height: window.innerHeight },
+    popupWidth: size.width,
+    popupHeight: size.height,
+    view: { top: vv.top, bottom: vv.top + vv.height, width: window.innerWidth },
+    avoidSystemMenu: coarse,
   })
-  const dockClass = place.mode === 'dock' ? ` docked ${place.edge}` : ''
-  const style: React.CSSProperties =
-    place.mode === 'dock'
-      ? place.edge === 'top'
-        ? { top: vv.top }
-        : // 不是 bottom: 0。iOS 15 起 Safari 的地址栏在屏幕底部，
-          // 软键盘升起时也一样——死贴 0 会让整条躲到它们后面去。
-          { bottom: vv.bottom }
-      : { top: place.top, left: place.left }
+  const style: React.CSSProperties = { top: place.top, left: place.left }
 
   const submit = async (kind: AnnotationKind) => {
     setBusy(true)
@@ -154,7 +150,7 @@ export default function SelectionPopup({
 
   return (
     <div
-      className={`sel-popup${dockClass}`}
+      className={`sel-popup side-${place.side}${coarse ? ' touch' : ''}`}
       ref={popupRef}
       style={style}
       onMouseDown={(e) => e.preventDefault()} // 桌面端：别让点击清掉选区
