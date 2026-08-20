@@ -1392,6 +1392,63 @@ html[data-theme='dark'] .ann-rect,
   max-width: min(92vw, 320px);
 }
 
+/* ── 环境自查页 ─────────────────────────────────────────────── */
+.diag-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.diag-row {
+  display: flex;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.diag-row:last-child {
+  border-bottom: none;
+}
+
+.diag-row.warn {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.diag-k {
+  flex: 1;
+  color: var(--text-2);
+}
+
+.diag-v {
+  font-family: var(--mono);
+  color: var(--text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.diag-probe {
+  margin-top: 24px;
+}
+
+/* 旧前端提示条。放在顶栏下面、内容上面——它讲的是「你看到的整个界面
+   都是过期的」，藏在角落里没有意义。 */
+.stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px calc(16px + env(safe-area-inset-right)) 10px
+    calc(16px + env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--warn) 12%, var(--surface));
+  border-bottom: 1px solid var(--warn);
+  font-size: 13px;
+  color: var(--text);
+}
+
 /* ── 批注卡片：点开一条已有批注 ────────────────────────────────
    复用 .sel-popup 的定位与贴边规则，内容区自己排版。 */
 .ann-popup {

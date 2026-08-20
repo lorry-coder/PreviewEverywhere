@@ -3,6 +3,7 @@ import type { AnnotationKind } from '../api'
 import { readSelection, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
 import { useTouchLayout } from './useTouchLayout'
+import { useVisualViewport } from './useVisualViewport'
 
 interface Props {
   proseRef: React.RefObject<HTMLElement | null>
@@ -49,6 +50,7 @@ export default function SelectionPopup({
   const [width, setWidth] = useState(320)
 
   const coarse = useTouchLayout()
+  const vv = useVisualViewport()
 
   // 鼠标抬起、触屏长按结束、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
@@ -131,8 +133,10 @@ export default function SelectionPopup({
   const style: React.CSSProperties =
     place.mode === 'dock'
       ? place.edge === 'top'
-        ? { top: 0 }
-        : { bottom: 0 }
+        ? { top: vv.top }
+        : // 不是 bottom: 0。iOS 15 起 Safari 的地址栏在屏幕底部，
+          // 软键盘升起时也一样——死贴 0 会让整条躲到它们后面去。
+          { bottom: vv.bottom }
       : { top: place.top, left: place.left }
 
   const submit = async (kind: AnnotationKind) => {

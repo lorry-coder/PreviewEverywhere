@@ -10,6 +10,7 @@ export type Route =
   | { name: 'search'; q: string }
   | { name: 'list'; project?: number; tag?: string; unread?: boolean; later?: boolean }
   | { name: 'doc'; id: number }
+  | { name: 'diag' }
 
 export function parseHash(hash: string = location.hash): Route {
   const path = hash.replace(/^#\/?/, '')
@@ -36,6 +37,8 @@ export function parseHash(hash: string = location.hash): Route {
       return { name: 'list' }
     case 'todo':
       return { name: 'actionable' }
+    case 'diag':
+      return { name: 'diag' }
     case 'search':
       return { name: 'search', q: decodeURIComponent(tail) }
     default:
@@ -72,6 +75,7 @@ export function routeKey(route: Route): string {
   if (route.name === 'actionable') return 'actionable'
   if (route.name === 'search') return 'search'
   if (route.name === 'doc') return 'doc'
+  if (route.name === 'diag') return 'diag'
   if (route.project) return `project:${route.project}`
   if (route.tag) return `tag:${route.tag}`
   if (route.unread) return 'unread'

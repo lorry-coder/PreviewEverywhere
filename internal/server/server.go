@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"previeweverywhere/internal/config"
@@ -20,10 +21,15 @@ type Server struct {
 	pipe  *ingest.Pipeline
 	watch *ingest.Watcher // 可能为 nil（纯推送模式）
 	hub   *hub
+	// build 是内嵌前端的主脚本文件名，见 frontendBuild。
+	build string
 }
 
 func New(st *store.Store, cfg *config.Config, pipe *ingest.Pipeline, watch *ingest.Watcher) *Server {
 	s := &Server{st: st, cfg: cfg, pipe: pipe, watch: watch, hub: newHub()}
+	if dist, err := fs.Sub(web.Dist, "dist"); err == nil {
+		s.build = frontendBuild(dist)
+	}
 	// 文档一入库就推给在线的阅读端：手机页面开着的时候，
 	// agent 写完文档它自己就冒出来，不用下拉刷新。
 	pipe.OnIngest(func(e ingest.Event) { s.hub.broadcast("doc", e) })
@@ -104,6 +110,25 @@ func (s *Server) serveFrontend() http.HandlerFunc {
 		serveIndex(w, r, dist)
 	}
 }
+
+// frontendBuild 返回内嵌的 index.html 里引用的主 JS 文件名。
+//
+// 它就是这个二进制携带的前端版本号：文件名带内容哈希，前端一变它就变。
+// 有这个才能回答「我手机上看到的到底是不是最新的」——这个问题问过两次，
+// 两次都只能靠猜，因为版本号在任何地方都不可见。
+func frontendBuild(dist fs.FS) string {
+	data, err := fs.ReadFile(dist, "index.html")
+	if err != nil {
+		return ""
+	}
+	m := mainScriptRe.FindSubmatch(data)
+	if m == nil {
+		return ""
+	}
+	return string(m[1])
+}
+
+var mainScriptRe = regexp.MustCompile(`assets/(index-[A-Za-z0-9_-]+\.js)`)
 
 func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
 	data, err := fs.ReadFile(dist, "index.html")

@@ -22,6 +22,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"total": total, "unread": unread}
+	// 这个二进制携带的前端版本。前端拿它跟自己实际加载的脚本比对，
+	// 不一致就说明浏览器还在用缓存里的旧前端——这件事此前完全不可见，
+	// 只能靠「你是不是没重新编译」这种猜测来回答。
+	out["build"] = s.build
 	if s.watch != nil {
 		out["watch"] = s.watch.Status()
 	}

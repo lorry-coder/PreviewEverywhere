@@ -12,10 +12,12 @@ import {
 } from './api'
 import type { Selected } from './annotate'
 import AnnotationPanel from './components/AnnotationPanel'
+import StaleBanner from './components/StaleBanner'
 import Login from './components/Login'
 import SearchBox from './components/SearchBox'
 import Sidebar from './components/Sidebar'
 import Actionable from './views/Actionable'
+import Diag from './views/Diag'
 import DocList from './views/DocList'
 import Reader, { TOCItem } from './views/Reader'
 import SearchResults from './views/SearchResults'
@@ -186,6 +188,8 @@ export default function App() {
         )}
       </header>
 
+      <StaleBanner serverBuild={status?.build} />
+
       <div className={`body${showAside ? ' with-toc' : ''}`}>
         <Sidebar
           route={route}
@@ -226,6 +230,8 @@ export default function App() {
             <Timeline status={status} reloadKey={reloadKey} />
           ) : route.name === 'actionable' ? (
             <Actionable reloadKey={reloadKey} />
+          ) : route.name === 'diag' ? (
+            <Diag status={status} />
           ) : route.name === 'search' ? (
             <SearchResults q={route.q} tags={tags} projects={projects} />
           ) : (

@@ -45,7 +45,7 @@ node "$TMP/check.mjs" web/parity-fixtures.json
 # ── 公式拆分 ──────────────────────────────────────────────────────
 (cd web && npx tsc src/richContent.ts src/vite-env.d.ts --outDir "$TMP/rc" \
    --target es2022 --module es2022 --moduleResolution bundler \
-   --lib es2022,dom --skipLibCheck)
+   --lib es2022,dom,dom.iterable --skipLibCheck)
 mv "$TMP/rc/richContent.js" "$TMP/rc/richContent.mjs"
 mv "$TMP/rc/normalize.js" "$TMP/rc/normalize.mjs" 2>/dev/null || true
 sed -i "s#from './normalize'#from './normalize.mjs'#" "$TMP/rc/richContent.mjs"
@@ -138,3 +138,30 @@ process.exit(bad ? 1 : 0)
 JS
 node "$TMP/place.mjs" || { echo "  浮层落位与预期不符"; exit 1; }
 echo "  ✓ 9 条浮层落位用例通过（含 iOS 让位与边缘夹紧）"
+
+# ── 4) 旧前端检测 ─────────────────────────────────────────────────
+# 「服务端已经更新了，但手机上看到的还是旧界面」这件事此前完全不可见，
+# 排查时只能靠猜「你是不是没重新编译」。现在服务端在 status 里报出它内嵌的
+# 主脚本名，前端跟自己实际加载的比对。这段判断必须稳，尤其是不能误报——
+# 一个动不动就说「你的版本是旧的」的横幅比没有横幅更糟。
+(cd web && npx tsc src/staleCheck.ts --outDir "$TMP" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022,dom,dom.iterable --skipLibCheck)
+mv "$TMP/staleCheck.js" "$TMP/staleCheck.mjs"
+
+cat > "$TMP/stale.mjs" <<'JS'
+import { isStale } from './staleCheck.mjs'
+let bad = 0
+const check = (name, got, want) => {
+  if (got === want) console.log(`  ✓ ${name}`)
+  else { console.log(`  ✗ ${name} — 期望 ${want} 实得 ${got}`); bad++ }
+}
+check('版本一致 → 不提示', isStale('index-A.js', 'index-A.js'), false)
+check('版本不一致 → 提示', isStale('index-A.js', 'index-B.js'), true)
+// 拿不到版本号时宁可不提示：误报比不报更糟
+check('服务端没报版本 → 不提示', isStale(undefined, 'index-A.js'), false)
+check('服务端报空串 → 不提示', isStale('', 'index-A.js'), false)
+check('开发模式（无哈希文件名）→ 不提示', isStale('index-A.js', ''), false)
+process.exit(bad ? 1 : 0)
+JS
+node "$TMP/stale.mjs" || { echo "  旧前端检测逻辑与预期不符"; exit 1; }
+echo "  ✓ 5 条旧前端检测用例通过"

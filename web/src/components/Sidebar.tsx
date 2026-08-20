@@ -97,6 +97,16 @@ export default function Sidebar({ route, projects, tags, status, open, onNavigat
           ))}
         </>
       )}
+      {/* 放在最下面：平时用不到，出问题时得找得到。
+          这个平台跑在手机上，而手机上的问题在开发机上复现不了，
+          没有这一页就只能靠来回描述现象。 */}
+      <div className="side-group">诊断</div>
+      <button
+        className={`side-item${active === 'diag' ? ' active' : ''}`}
+        onClick={() => go('#/diag')}
+      >
+        <span className="label">环境自查</span>
+      </button>
     </nav>
   )
 }

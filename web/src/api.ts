@@ -72,6 +72,8 @@ export interface Status {
   total: number
   unread: number
   watch?: WatchStatus
+  /** 服务端内嵌的前端主脚本文件名，用来识别浏览器是不是在跑缓存里的旧版。 */
+  build?: string
 }
 
 export interface SearchHit extends Doc {

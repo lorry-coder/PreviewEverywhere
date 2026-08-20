@@ -3,6 +3,7 @@ import { KIND_LABEL, type Annotation } from '../api'
 import { rectsForAnnotation } from '../annotate'
 import { placePopup } from '../popupPlacement'
 import { useTouchLayout } from './useTouchLayout'
+import { useVisualViewport } from './useVisualViewport'
 
 interface Props {
   annotation: Annotation
@@ -38,6 +39,7 @@ export default function AnnotationPopup({
   const [size, setSize] = useState({ width: 320 })
 
   const coarse = useTouchLayout()
+  const vv = useVisualViewport()
 
   // 换一条批注就重置，否则会把上一条的草稿带过来。
   useEffect(() => {
@@ -87,8 +89,10 @@ export default function AnnotationPopup({
   const style: React.CSSProperties =
     place.mode === 'dock'
       ? place.edge === 'top'
-        ? { top: 0 }
-        : { bottom: 0 }
+        ? { top: vv.top }
+        : // 不是 bottom: 0。iOS 15 起 Safari 的地址栏在屏幕底部，
+          // 软键盘升起时也一样——死贴 0 会让整条躲到它们后面去。
+          { bottom: vv.bottom }
       : { top: place.top, left: place.left }
 
   const save = async () => {
