@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { copyText } from '../clipboard'
 
 interface Entry {
   t: number
@@ -19,9 +20,23 @@ interface Entry {
  * 这一栏把真实的事件序列摆出来：谁先谁后、每一刻选区是什么状态、
  * 气泡在不在。长按下面那段示例文字，然后把记录念出来就行。
  */
+function asText(log: Entry[]): string {
+  return log
+    .map((e) => `${e.t}ms ${e.ev} ranges=${e.ranges} collapsed=${e.collapsed} len=${e.len} bubble=${e.bubble}`)
+    .join('\n')
+}
+
 export default function SelectionTrace() {
   const [log, setLog] = useState<Entry[]>([])
   const [on, setOn] = useState(false)
+  // 点「复制」后摊出来的全文，以及自动复制成没成。
+  //
+  // 为什么无论成败都摊出来：局域网是 http，navigator.clipboard 根本不存在；
+  // 退回 execCommand 之后，iOS 上它返回 true 也可能压根没放进剪贴板。
+  // 这个布尔值靠不住，而这一栏的唯一用途就是把文本从手机上弄出来——
+  // 与其赌它，不如永远把原文摆在那儿，让人能选、能截图。
+  const [manual, setManual] = useState('')
+  const [copied, setCopied] = useState(false)
   const startRef = useRef(0)
 
   useEffect(() => {
@@ -71,11 +86,10 @@ export default function SelectionTrace() {
         {on && log.length > 0 && (
           <button
             className="text-btn"
-            onClick={() => {
-              const text = log
-                .map((e) => `${e.t}ms ${e.ev} ranges=${e.ranges} collapsed=${e.collapsed} len=${e.len} bubble=${e.bubble}`)
-                .join('\n')
-              void navigator.clipboard?.writeText(text)
+            onClick={async () => {
+              const text = asText(log)
+              setCopied(await copyText(text))
+              setManual(text)
             }}
           >
             复制记录
@@ -90,6 +104,17 @@ export default function SelectionTrace() {
         长按这段文字来复现问题。这里的字要够多，长按之后 iOS 才会选中一个词
         并弹出它自己的菜单，而这正是我们要看清楚的那一刻。
       </p>
+
+      {manual && (
+        <div className="diag-manual">
+          <p className="page-sub">
+            {copied
+              ? '已尝试复制到剪贴板。iOS 上这一步不一定真的成功，所以原文也留在下面——长按全选，或者直接截图。'
+              : '这个页面走的是 http，浏览器不提供剪贴板接口，自动复制没成。下面这段长按全选即可，或者直接截图。'}
+          </p>
+          <textarea readOnly rows={8} value={manual} onFocus={(e) => e.target.select()} />
+        </div>
+      )}
 
       {on && (
         <div className="diag-table">

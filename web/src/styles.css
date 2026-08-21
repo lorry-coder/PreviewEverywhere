@@ -1480,6 +1480,25 @@ html[data-theme='dark'] .ann-rect,
   margin-top: 24px;
 }
 
+/* 自动复制失败时摊出来的全文。局域网走 http，剪贴板接口不存在，
+   这是唯一还能把内容取出去的办法，所以要好选、好读。 */
+.diag-manual {
+  margin: 12px 0;
+}
+
+.diag-manual textarea {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px; /* 比 16px 小会让 iOS 放大页面，但这里是只读框，可接受 */
+  line-height: 1.6;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  resize: vertical;
+}
+
 /* 供长按的示例文字。刻意给足行高和留白，手指好按。 */
 .diag-sample {
   margin: 12px 0;

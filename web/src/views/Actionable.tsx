@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, AuthError, KIND_LABEL, type Annotation } from '../api'
+import { copyText } from '../clipboard'
 import { relativeTime } from '../format'
 import { navigate } from '../router'
 
@@ -13,7 +14,10 @@ import { navigate } from '../router'
 export default function Actionable({ reloadKey }: { reloadKey: number }) {
   const [items, setItems] = useState<Annotation[] | null>(null)
   const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
+  // '' | 'ok' | 'fail'。此前不管成没成都显示「已复制」——
+  // 局域网是 http，剪贴板接口根本不存在，那句提示纯属骗人。
+  const [copyState, setCopyState] = useState<'' | 'ok' | 'fail'>('')
+  const [manual, setManual] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
 
   useEffect(() => {
@@ -67,15 +71,29 @@ export default function Actionable({ reloadKey }: { reloadKey: number }) {
             <button
               className="text-btn"
               onClick={async () => {
-                await navigator.clipboard?.writeText(asMarkdown())
-                setCopied(true)
-                window.setTimeout(() => setCopied(false), 2000)
+                const text = asMarkdown()
+                // 无论成没成都把原文摊出来。iOS 上 execCommand 返回 true
+                // 也可能压根没放进剪贴板，只信那个布尔值就会出现
+                // 「显示已复制、粘出来是空的」——那比不复制更糟。
+                setCopyState((await copyText(text)) ? 'ok' : 'fail')
+                setManual(text)
               }}
             >
-              {copied ? '已复制' : '复制为 Markdown'}
+              {copyState === 'ok' ? '已复制' : '复制为 Markdown'}
             </button>
-            <span className="actionable-hint">复制出来可以直接粘给下一轮 agent</span>
+            <span className="actionable-hint">
+              {copyState === '' && '复制出来可以直接粘给下一轮 agent'}
+              {copyState === 'ok' && '已尝试复制。iOS 上不一定真的成功，原文也留在下面。'}
+              {copyState === 'fail' &&
+                '这个页面走的是 http，浏览器不提供剪贴板接口。下面这段长按全选即可。'}
+            </span>
           </div>
+
+          {manual && (
+            <div className="diag-manual">
+              <textarea readOnly rows={10} value={manual} onFocus={(e) => e.target.select()} />
+            </div>
+          )}
 
           <div className="doc-list">
             {items.map((a) => (
