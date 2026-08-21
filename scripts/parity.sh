@@ -190,7 +190,7 @@ mv "$TMP/touchGrace.js" "$TMP/touchGrace.mjs"
 
 cat > "$TMP/grace.mjs" <<'JS'
 import {
-  GRACE_AFTER_START, GRACE_AFTER_END, SETTLE_MS,
+  GRACE_AFTER_START, GRACE_AFTER_END,
   graceOnStart, graceOnEnd, inGrace, checkDelay,
 } from './touchGrace.mjs'
 
@@ -222,13 +222,81 @@ check('不在宽限期 → 用最小延迟', checkDelay(T, 0), 60)
 check('宽限期已过 → 用最小延迟', checkDelay(T, T - 999), 60)
 check('延迟不会超过宽限上限', checkDelay(T, graceOnStart(T)) <= GRACE_AFTER_START, true)
 
-// 选区刚建立后的静默期：只接受「有选区」的读数。
-// 这条曾经取 1200ms，代价是「点别处收起气泡」在这段时间里失灵，像卡住一样。
-check('静默期够长，能覆盖 iOS 弹菜单那一下', SETTLE_MS >= 300, true)
-check('静默期够短，不至于让点别处收气泡失灵', SETTLE_MS <= 500, true)
-check('静默期短于按下宽限', SETTLE_MS < GRACE_AFTER_START, true)
 
 process.exit(bad ? 1 : 0)
 JS
 node "$TMP/grace.mjs" || { echo "  宽限期逻辑与预期不符"; exit 1; }
-echo "  ✓ 14 条宽限期用例通过（核心：宽限期一定会到期）"
+echo "  ✓ 11 条宽限期用例通过（核心：宽限期一定会到期）"
+
+# ── 6) 选区提交的确认规则 ─────────────────────────────────────────
+# 这套判断已经改坏过两次，两次的根子相同：急着显示气泡，然后再想办法撤回。
+# 现在的规则是「任何状态变化都要连续两次读数一致才算数」，两个方向对称。
+# 下面把四种真实场景逐条走一遍——这是这个文件里最该守住的东西。
+(cd web && npx tsc src/selectionCommit.ts --outDir "$TMP" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022 --skipLibCheck)
+mv "$TMP/selectionCommit.js" "$TMP/selectionCommit.mjs"
+
+cat > "$TMP/commit.mjs" <<'JS'
+import { nextStep, sameAnchor, CONFIRM_MS, MAX_RECHECKS } from './selectionCommit.mjs'
+
+let bad = 0
+const check = (name, got, want) => {
+  const g = JSON.stringify(got), w = JSON.stringify(want)
+  if (g === w) console.log(`  ✓ ${name}`)
+  else { console.log(`  ✗ ${name} — 期望 ${w} 实得 ${g}`); bad++ }
+}
+const A = { blk: 'aaa', startOff: 0, endOff: 5 }
+const B = { blk: 'bbb', startOff: 2, endOff: 9 }
+
+// 把一串读数喂进去，返回每一步提交了什么（null 表示没提交）
+function run(reads, needConfirm = true) {
+  let last = null, rechecks = 0, committed = []
+  for (const cur of reads) {
+    const step = nextStep(last, cur, rechecks, needConfirm)
+    last = cur
+    if (step.action === 'recheck') { rechecks++; committed.push('—'); continue }
+    rechecks = 0
+    committed.push(cur ? cur.blk : '空')
+  }
+  return committed
+}
+
+check('身份比较：同一段', sameAnchor(A, { ...A }), true)
+check('身份比较：不同段', sameAnchor(A, B), false)
+check('身份比较：空与空', sameAnchor(null, null), true)
+check('身份比较：空与非空', sameAnchor(null, A), false)
+
+// 场景一：真实选区 —— 第二次读到一致才提交
+check('真实选区：第二次一致才提交', run([A, A]), ['—', 'aaa'])
+
+// 场景二：iOS 的临时选区 —— 气泡自始至终没出现过
+check('临时选区：从不提交非空', run([A, null, null]), ['—', '—', '空'])
+
+// 场景三：已提交后来一次假的「读不到」—— 不许提交空
+check('假的读不到：不提交空', run([A, A, null, A, A]), ['—', 'aaa', '—', '—', 'aaa'])
+
+// 场景四：用户真的取消了选区 —— 两次空一致，提交空
+check('真取消：两次空后提交', run([A, A, null, null]), ['—', 'aaa', '—', '空'])
+
+// 拖动把手改变选区：稳定下来才提交新的
+check('改变选区：稳定后提交新的', run([A, A, B, B]), ['—', 'aaa', '—', 'bbb'])
+
+// 桌面端不需要确认，立即生效
+check('桌面端：立即提交', run([A], false), ['aaa'])
+check('桌面端：立即提交空', run([null], false), ['空'])
+
+// 读数持续抖动时必须有界，不能无限自我调度
+let last = null, rechecks = 0, loops = 0
+for (let i = 0; i < 100; i++) {
+  const cur = i % 2 ? A : B
+  const step = nextStep(last, cur, rechecks, true)
+  last = cur
+  if (step.action === 'recheck') { rechecks++; loops++ } else { rechecks = 0 }
+}
+check('持续抖动时确认次数有界', loops <= 100 && rechecks <= MAX_RECHECKS, true)
+check('确认间隔是正数', CONFIRM_MS > 0, true)
+
+process.exit(bad ? 1 : 0)
+JS
+node "$TMP/commit.mjs" || { echo "  选区提交规则与预期不符"; exit 1; }
+echo "  ✓ 13 条选区提交用例通过（核心：连续两次一致才算数）"

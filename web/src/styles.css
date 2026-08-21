@@ -1476,6 +1476,21 @@ html[data-theme='dark'] .ann-rect,
   margin-top: 24px;
 }
 
+.diag-trace {
+  margin-top: 24px;
+}
+
+/* 供长按的示例文字。刻意给足行高和留白，手指好按。 */
+.diag-sample {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px dashed var(--border-2);
+  border-radius: 4px;
+  line-height: 1.9;
+  font-size: 15px;
+  color: var(--text);
+}
+
 /* 自查页里那个气泡样品要就地显示，不能跟着真气泡一起 fixed 定位。 */
 .diag-bubble {
   position: relative;

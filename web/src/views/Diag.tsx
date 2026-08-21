@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Status } from '../api'
 import { useTouchLayout } from '../components/useTouchLayout'
 import { useVisualViewport } from '../components/useVisualViewport'
+import SelectionTrace from '../components/SelectionTrace'
 import { hardReload, loadedBuild } from '../staleCheck'
 
 /**
@@ -70,6 +71,8 @@ export default function Diag({ status }: { status: Status | null }) {
           注销 service worker、清掉缓存再重载。iOS 上单纯下拉刷新经常不够。
         </span>
       </div>
+
+      <SelectionTrace />
 
       <div className="diag-probe">
         <p className="page-sub">
