@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { AnnotationKind } from '../api'
 import { readSelection, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
-import { checkDelay, graceOnEnd, graceOnStart, inGrace } from '../touchGrace'
+import { checkDelay, graceOnEnd, graceOnStart, SETTLE_MS } from '../touchGrace'
 import { useTouchLayout } from './useTouchLayout'
 import { useVisualViewport } from './useVisualViewport'
 
@@ -45,6 +45,8 @@ export default function SelectionPopup({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   // 手指落在气泡上时的宽限期截止时间戳，语义见 touchGrace.ts。
   const graceUntilRef = useRef(0)
+  // 上一次成功读到选区的时刻，用于压住 iOS 那段读不到选区的空窗期。
+  const settledAtRef = useRef(0)
 
   // 浮层自身的尺寸。夹紧位置时必须知道它，否则「贴着视口右边」实际上是
   // 右半个气泡已经在屏幕外了。首帧先估一个值，量到真值再校正。
@@ -60,11 +62,21 @@ export default function SelectionPopup({
     // 正在气泡里打字：textarea 里的光标移动也会触发 selectionchange，
     // 不挡住的话写到一半会被自己关掉。
     if (popupRef.current?.contains(document.activeElement)) return
+
     const next = readSelection(prose)
     if (next) {
       setSel(next)
+      settledAtRef.current = Date.now()
       return
     }
+
+    // 「读不到选区」在 iOS 上并不等于「用户的选中没了」。
+    // 系统自己的选区菜单弹出的那段时间里 getSelection() 会短暂读不到东西，
+    // 此时若把气泡拆掉，随之而来的 DOM 变化还会让 iOS 把选中标记一起丢掉——
+    // 表现就是「气泡和选中的文字一起消失」。所以选区刚建立的这段时间里
+    // 只接受「有选区」的读数，不接受「没有」。
+    if (Date.now() - settledAtRef.current < SETTLE_MS) return
+
     setSel(null)
     setComposing(null)
     setDraft('')
@@ -96,22 +108,6 @@ export default function SelectionPopup({
       document.removeEventListener('selectionchange', check)
     }
   }, [proseRef, evaluate])
-
-  // 气泡出现之后再回头确认一次。
-  //
-  // iOS 有时会在长按过程中先产生一个选区、随后又把它收掉，而收掉这一下
-  // 不一定触发 selectionchange。结果就是屏幕上没有任何选中标记，
-  // 气泡却留在那里，指向一个已经不存在的选区。没有这道复核就没人纠正它。
-  //
-  // 300ms 是让 iOS 把长按手势结算完；正在拖选区把手时选区还在，复核是空操作。
-  useEffect(() => {
-    if (!sel) return
-    const t = window.setTimeout(() => {
-      if (inGrace(Date.now(), graceUntilRef.current)) return
-      evaluate()
-    }, 300)
-    return () => window.clearTimeout(t)
-  }, [sel, evaluate])
 
   useEffect(() => {
     if (composing) inputRef.current?.focus()

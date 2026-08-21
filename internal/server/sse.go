@@ -13,10 +13,27 @@ import (
 type hub struct {
 	mu   sync.Mutex
 	subs map[chan []byte]struct{}
+	// done 在服务准备退出时关闭，让所有 SSE 处理器自己返回。
+	//
+	// 没有它的话优雅退出根本走不完：http.Server.Shutdown 会等所有连接结束，
+	// 而 SSE 按定义就是永不结束的长连接，于是必然卡到超时，
+	// 然后把 context deadline exceeded 当成错误报出来。
+	done chan struct{}
 }
 
 func newHub() *hub {
-	return &hub{subs: map[chan []byte]struct{}{}}
+	return &hub{subs: map[chan []byte]struct{}{}, done: make(chan struct{})}
+}
+
+// close 通知所有在线的 SSE 连接收工。可重复调用。
+func (h *hub) close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	select {
+	case <-h.done: // 已经关过了
+	default:
+		close(h.done)
+	}
 }
 
 func (h *hub) broadcast(event string, data any) {
@@ -72,6 +89,9 @@ func (h *hub) serve(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-h.done:
+			// 服务要退出了。主动收尾，Shutdown 才能在等待期内走完。
 			return
 		case msg := <-ch:
 			w.Write(msg)

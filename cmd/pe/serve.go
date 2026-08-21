@@ -69,9 +69,10 @@ func cmdServe(args []string) error {
 		}
 	}()
 
+	api := server.New(st, cfg, pipe, watcher)
 	srv := &http.Server{
 		Addr:    cfg.Bind,
-		Handler: server.New(st, cfg, pipe, watcher).Handler(),
+		Handler: api.Handler(),
 		// SSE 是长连接，写超时必须留空，否则连接会被定期掐断。
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -90,9 +91,20 @@ func cmdServe(args []string) error {
 		return err
 	case <-ctx.Done():
 		log.Println("正在退出…")
+		// 先让 SSE 长连接收尾。不这么做的话 Shutdown 会一直等它们——
+		// 而它们按定义永不结束，结果就是每次 Ctrl-C 都要卡满超时，
+		// 最后再报一句 context deadline exceeded。
+		api.Close()
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			// 还是有连接赖着不走。强行关掉即可——进程本来就要结束了，
+			// 这不是使用者需要看到的「错误」。
+			srv.Close()
+			log.Println("有连接未在期限内关闭，已强制断开。")
+		}
+		return nil
 	}
 }
 

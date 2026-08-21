@@ -190,7 +190,7 @@ mv "$TMP/touchGrace.js" "$TMP/touchGrace.mjs"
 
 cat > "$TMP/grace.mjs" <<'JS'
 import {
-  GRACE_AFTER_START, GRACE_AFTER_END,
+  GRACE_AFTER_START, GRACE_AFTER_END, SETTLE_MS,
   graceOnStart, graceOnEnd, inGrace, checkDelay,
 } from './touchGrace.mjs'
 
@@ -222,7 +222,13 @@ check('不在宽限期 → 用最小延迟', checkDelay(T, 0), 60)
 check('宽限期已过 → 用最小延迟', checkDelay(T, T - 999), 60)
 check('延迟不会超过宽限上限', checkDelay(T, graceOnStart(T)) <= GRACE_AFTER_START, true)
 
+// 选区刚建立后的静默期：只接受「有选区」的读数。
+// 这条曾经取 1200ms，代价是「点别处收起气泡」在这段时间里失灵，像卡住一样。
+check('静默期够长，能覆盖 iOS 弹菜单那一下', SETTLE_MS >= 300, true)
+check('静默期够短，不至于让点别处收气泡失灵', SETTLE_MS <= 500, true)
+check('静默期短于按下宽限', SETTLE_MS < GRACE_AFTER_START, true)
+
 process.exit(bad ? 1 : 0)
 JS
 node "$TMP/grace.mjs" || { echo "  宽限期逻辑与预期不符"; exit 1; }
-echo "  ✓ 11 条宽限期用例通过（核心：宽限期一定会到期）"
+echo "  ✓ 14 条宽限期用例通过（核心：宽限期一定会到期）"

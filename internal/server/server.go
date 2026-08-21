@@ -36,6 +36,12 @@ func New(st *store.Store, cfg *config.Config, pipe *ingest.Pipeline, watch *inge
 	return s
 }
 
+// Close 让所有 SSE 长连接收尾。必须在 http.Server.Shutdown 之前调用，
+// 否则 Shutdown 会一直等这些永不结束的连接，直到超时。
+func (s *Server) Close() {
+	s.hub.close()
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
