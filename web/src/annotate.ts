@@ -6,6 +6,7 @@
  * 这个模块在两边之间建一张逐字符的映射表。
  */
 
+import { classify, type SelectionState } from './selectionRead'
 import { SPACE_RE, ZERO_WIDTH, isCJK } from './normalize'
 
 export { normalize, isCJK } from './normalize'
@@ -96,6 +97,38 @@ export interface Selected {
  * 跨块的选区会被截到起始块的末尾：批注模型里一条批注只归属一个块。
  * 这是个真实的限制，好在绝大多数划线都发生在一段之内。
  */
+/** 一次读数的完整结论：状态 + （有选区时的）内容。 */
+export interface SelectionRead {
+  state: SelectionState
+  value: Selected | null
+}
+
+/**
+ * 读一次选区，并明确区分「读不出来」和「确实没有选中」。
+ * 为什么必须分开，见 selectionRead.ts —— 这是这块反复出问题的根子。
+ */
+export function readSelectionState(root: HTMLElement): SelectionRead {
+  const sel = window.getSelection()
+  if (!sel) return { state: 'unknown', value: null }
+
+  const facts = {
+    rangeCount: sel.rangeCount,
+    hasAnchorNode: sel.anchorNode !== null,
+    isCollapsed: sel.isCollapsed,
+    // 后两项要拿到 range 才知道，先按「满足」填，下面用真实结果覆盖。
+    insideRoot: true,
+    hasText: true,
+  }
+  if (classify(facts) === 'unknown') return { state: 'unknown', value: null }
+
+  const value = readSelection(root)
+  if (value) return { state: 'selection', value }
+
+  // 有 anchorNode、也不是 unknown，但取不到正文里的有效选区：
+  // 说明选区确实折叠了、或者落在正文之外，两者都该收起气泡。
+  return { state: 'empty', value: null }
+}
+
 export function readSelection(root: HTMLElement): Selected | null {
   const sel = window.getSelection()
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null

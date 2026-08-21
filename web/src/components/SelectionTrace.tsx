@@ -5,6 +5,8 @@ interface Entry {
   t: number
   ev: string
   ranges: number
+  /** anchorNode 是否存在。iOS 点按钮时发的那种「什么也没说明」的事件，这里是 false。 */
+  anchor: boolean
   collapsed: boolean
   len: number
   bubble: boolean
@@ -22,7 +24,10 @@ interface Entry {
  */
 function asText(log: Entry[]): string {
   return log
-    .map((e) => `${e.t}ms ${e.ev} ranges=${e.ranges} collapsed=${e.collapsed} len=${e.len} bubble=${e.bubble}`)
+    .map(
+      (e) =>
+        `${e.t}ms ${e.ev} ranges=${e.ranges} anchor=${e.anchor} collapsed=${e.collapsed} len=${e.len} bubble=${e.bubble}`,
+    )
     .join('\n')
 }
 
@@ -53,6 +58,7 @@ export default function SelectionTrace() {
             t: Date.now() - startRef.current,
             ev,
             ranges: s?.rangeCount ?? 0,
+            anchor: !!s?.anchorNode,
             collapsed: s?.isCollapsed ?? true,
             len: (s?.toString() ?? '').length,
             bubble: !!document.querySelector('.sel-popup'),
@@ -124,12 +130,15 @@ export default function SelectionTrace() {
             </div>
           ) : (
             log.map((e, i) => (
-              <div key={i} className={`diag-row${!e.collapsed && e.len > 0 ? '' : ' warn'}`}>
+              // 无锚点的那种事件单独标出来：它是 iOS 特有的「什么也没说明」，
+              // 既不代表有选区，也不代表选区没了。
+              <div key={i} className={`diag-row${!e.anchor || e.collapsed ? ' warn' : ''}`}>
                 <span className="diag-k">
                   {e.t}ms · {e.ev}
                 </span>
                 <span className="diag-v">
-                  选区{e.ranges}段 {e.collapsed ? '已折叠' : '有内容'} {e.len}字 气泡
+                  {e.anchor ? `选区${e.ranges}段` : '无锚点'}{' '}
+                  {e.collapsed ? '已折叠' : '有内容'} {e.len}字 气泡
                   {e.bubble ? '在' : '无'}
                 </span>
               </div>

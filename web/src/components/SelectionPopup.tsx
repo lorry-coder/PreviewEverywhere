@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { AnnotationKind } from '../api'
-import { readSelection, type Selected } from '../annotate'
+import { readSelectionState, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
-import { nextStep, sameAnchor } from '../selectionCommit'
+import { CONFIRM_MS, nextStep, sameAnchor } from '../selectionCommit'
 import { checkDelay, graceOnEnd, graceOnStart, inGrace } from '../touchGrace'
 import { useTouchLayout } from './useTouchLayout'
 import { useVisualViewport } from './useVisualViewport'
@@ -64,8 +64,13 @@ export default function SelectionPopup({
   const coarse = useTouchLayout()
   const vv = useVisualViewport()
 
-  // 读一次当前选区。连续两次读数一致才提交——理由见 selectionCommit.ts，
-  // 一句话：不急着显示，就不需要撤回，也就没有撤回带来的破坏。
+  // 读一次当前选区。
+  //
+  // 三种读数分别对待，这是整块逻辑的枢纽（见 selectionRead.ts）：
+  //   unknown   —— 什么都不做。iOS 上点按钮就会发这种事件，
+  //                把它当成「选区没了」，气泡就会在点击生效前自己消失。
+  //   empty     —— 确实没有选中了，收起气泡。
+  //   selection —— 显示或更新气泡。
   const evaluate = useCallback(() => {
     const prose = proseRef.current
     if (!prose) return
@@ -74,8 +79,9 @@ export default function SelectionPopup({
     // 不挡住的话写到一半会被自己关掉。
     if (popupRef.current?.contains(document.activeElement)) return
 
-    // 手指正落在气泡上：iOS 会先收掉选区再派发 click，这段时间不做判断，
-    // 但要把这次判断推迟到宽限期之后，而不是丢掉它。
+    // 手指正落在气泡上。iOS 点按钮发的那种事件已经被 unknown 挡掉了，
+    // 但它也可能发一次带 anchorNode 的真折叠事件——那会被判成 empty。
+    // 这段时间里推迟判断（而不是丢掉），把点击这一下完整跨过去。
     const now = Date.now()
     if (inGrace(now, graceUntilRef.current)) {
       window.clearTimeout(timerRef.current)
@@ -83,55 +89,74 @@ export default function SelectionPopup({
       return
     }
 
-    const current = readSelection(prose)
-    const step = nextStep(lastReadRef.current, current, rechecksRef.current, coarse)
-    lastReadRef.current = current
+    const { state, value } = readSelectionState(prose)
 
+    if (state === 'unknown') {
+      // 什么也没说明，所以不改变任何状态。但如果正处在确认周期中间，
+      // 必须把周期接上——这次读数是被计划好的那一次，白白丢掉的话
+      // 就再没有东西来推进它，气泡会卡在「等确认」里永远不出现。
+      if (rechecksRef.current > 0) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = window.setTimeout(evaluate, CONFIRM_MS)
+      }
+      return
+    }
+
+    if (state === 'empty') {
+      const current = nextStep(lastReadRef.current, null, rechecksRef.current, coarse)
+      lastReadRef.current = null
+      if (current.action === 'recheck') {
+        rechecksRef.current += 1
+        window.clearTimeout(timerRef.current)
+        timerRef.current = window.setTimeout(evaluate, current.delayMs)
+        return
+      }
+      rechecksRef.current = 0
+      setSel(null)
+      setComposing(null)
+      setDraft('')
+      return
+    }
+
+    const step = nextStep(lastReadRef.current, value, rechecksRef.current, coarse)
+    lastReadRef.current = value
     if (step.action === 'recheck') {
       rechecksRef.current += 1
       window.clearTimeout(timerRef.current)
       timerRef.current = window.setTimeout(evaluate, step.delayMs)
       return
     }
-
     rechecksRef.current = 0
-    if (!current) {
-      setSel(null)
-      setComposing(null)
-      setDraft('')
-      return
-    }
     // 身份没变时只更新位置（滚动会让 rect 移动），不换对象——
     // 少一次无谓的重渲染，就少一次在 iOS 眼皮底下动 DOM 的机会。
     setSel((prev) =>
-      prev && sameAnchor(prev, current) && sameRect(prev.rect, current.rect) ? prev : current,
+      prev && value && sameAnchor(prev, value) && sameRect(prev.rect, value.rect) ? prev : value,
     )
   }, [proseRef, coarse])
 
-  // 鼠标抬起、触屏手势结束、以及选区本身发生变化，都要重新看一眼。
-  //
-  // 三类事件缺一不可：selectionchange 在拖动选区把手时最可靠；
-  // touchend/touchcancel 覆盖「手指抬在正文之外」（比如抬在系统菜单上）；
-  // mouseup 是桌面端划词的落点。
+  // 指针抬起、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
-    const prose = proseRef.current
-    if (!prose) return
+    // 参考实现用 10ms（recogito/text-annotator-js）。此前这里是 60ms，
+    // 那是在为「读不出选区就当没选区」的误判争取缓冲时间；
+    // 误判修掉之后就没必要了，短一点手感更跟手。
     const check = () => {
       window.clearTimeout(timerRef.current)
-      timerRef.current = window.setTimeout(evaluate, 60)
+      timerRef.current = window.setTimeout(evaluate, 10)
     }
-    prose.addEventListener('mouseup', check)
-    document.addEventListener('touchend', check)
-    document.addEventListener('touchcancel', check)
+    // 用 pointerup 而不是 mouseup + touchend：一个事件同时覆盖鼠标与触摸，
+    // 而且挂在 document 上——鼠标在正文之外松开（划到页边、划出容器）
+    // 同样要算数，挂在 prose 上会漏掉这一类。
+    document.addEventListener('pointerup', check)
+    document.addEventListener('pointercancel', check)
+    // 拖动选区把手时不产生 pointerup，selectionchange 才是那条路上的信号。
     document.addEventListener('selectionchange', check)
     return () => {
       window.clearTimeout(timerRef.current)
-      prose.removeEventListener('mouseup', check)
-      document.removeEventListener('touchend', check)
-      document.removeEventListener('touchcancel', check)
+      document.removeEventListener('pointerup', check)
+      document.removeEventListener('pointercancel', check)
       document.removeEventListener('selectionchange', check)
     }
-  }, [proseRef, evaluate])
+  }, [evaluate])
 
   useEffect(() => {
     if (composing) inputRef.current?.focus()

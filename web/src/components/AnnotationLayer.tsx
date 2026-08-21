@@ -81,6 +81,12 @@ export default function AnnotationLayer({ annotations, proseRef, version, active
     const onClick = (e: MouseEvent) => {
       const layer = layerRef.current
       if (!layer) return
+      // 划词划到一段已有高亮上时，浏览器在拖拽结束后照样派发 click。
+      // 不挡住的话，用户明明是想给这段文字加批注，弹出来的却是
+      // 「点开已有批注」那张卡片——两个动作抢同一个手势。
+      // 判据很直接：手上还有没折叠的选区，就说明这是划词的收尾，不是点击。
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) return
       const origin = layer.getBoundingClientRect()
       const x = e.clientX - origin.left
       const y = e.clientY - origin.top

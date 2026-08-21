@@ -300,3 +300,48 @@ process.exit(bad ? 1 : 0)
 JS
 node "$TMP/commit.mjs" || { echo "  选区提交规则与预期不符"; exit 1; }
 echo "  ✓ 13 条选区提交用例通过（核心：连续两次一致才算数）"
+
+# ── 7) 选区读数的三值判定 ─────────────────────────────────────────
+# 这块反复改了五轮，根子始终是同一个误判：把「读不出选区」当成「用户取消了选中」。
+# 这两件事在 iOS 上完全不同——用户点按钮时 iOS 会发一个 anchorNode 为 null 的
+# selectionchange，它什么也没说明。而划词气泡恰恰全是按钮。
+# 参考 recogito/text-annotator-js 的 selection-handler，其注释与此一致。
+(cd web && npx tsc src/selectionRead.ts --outDir "$TMP" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022 --skipLibCheck)
+mv "$TMP/selectionRead.js" "$TMP/selectionRead.mjs"
+
+cat > "$TMP/read.mjs" <<'JS'
+import { classify } from './selectionRead.mjs'
+
+let bad = 0
+const check = (name, got, want) => {
+  if (got === want) console.log(`  ✓ ${name}`)
+  else { console.log(`  ✗ ${name} — 期望 ${want} 实得 ${got}`); bad++ }
+}
+// 一段正常的、落在正文里的选中
+const ok = { rangeCount: 1, hasAnchorNode: true, isCollapsed: false, insideRoot: true, hasText: true }
+
+check('正常选中 → selection', classify(ok), 'selection')
+
+// 这一条是整块逻辑的枢纽：iOS 点按钮时发的事件
+check('iOS 点按钮：无 anchorNode → unknown',
+      classify({ ...ok, hasAnchorNode: false, isCollapsed: true }), 'unknown')
+check('压根没有 range → unknown', classify({ ...ok, rangeCount: 0 }), 'unknown')
+// 即使看起来「像有选区」，只要没有 anchorNode 就不能下结论
+check('无 anchorNode 时不看其它字段', classify({
+  rangeCount: 1, hasAnchorNode: false, isCollapsed: false, insideRoot: true, hasText: true,
+}), 'unknown')
+
+// 这些才是确凿的「现在没有可用选区」
+check('选区已折叠 → empty', classify({ ...ok, isCollapsed: true }), 'empty')
+check('选区在正文之外 → empty', classify({ ...ok, insideRoot: false }), 'empty')
+check('选中的只有空白 → empty', classify({ ...ok, hasText: false }), 'empty')
+
+// unknown 与 empty 必须是不同的结论，否则这次修复等于没做
+check('unknown 不等于 empty',
+      classify({ ...ok, hasAnchorNode: false }) !== classify({ ...ok, isCollapsed: true }), true)
+
+process.exit(bad ? 1 : 0)
+JS
+node "$TMP/read.mjs" || { echo "  选区读数判定与预期不符"; exit 1; }
+echo "  ✓ 8 条选区读数用例通过（核心：读不出 ≠ 没选中）"
