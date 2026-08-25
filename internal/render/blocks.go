@@ -161,6 +161,10 @@ func (w *walkState) rewriteImage(n *html.Node) {
 	if src == "" || isAbsoluteURL(src) || strings.HasPrefix(src, "data:") {
 		return
 	}
+	// 按出现次序记下原始引用。解析出的次序就是文档里的次序，
+	// 老文档没有这份记录时，兜底的顺序配对靠的正是同一个次序。
+	w.res.ImageRefs = append(w.res.ImageRefs, src)
+
 	if w.opt.AssetResolver != nil {
 		if url, ok := w.opt.AssetResolver(src); ok {
 			setAttr(n, "src", url)

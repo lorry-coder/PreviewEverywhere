@@ -1434,6 +1434,220 @@ html[data-theme='dark'] .ann-rect,
   transform: scale(0.96);
 }
 
+/* ── 分享菜单 ─────────────────────────────────────────────────── */
+.share-wrap {
+  position: relative;
+}
+
+.share-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: min(78vw, 260px);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.share-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 4px;
+  /* 手指的落点比鼠标大得多，而这个菜单主要在手机上用。 */
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.share-item:hover,
+.share-item:active {
+  background: var(--surface-2);
+}
+
+.share-item:disabled {
+  opacity: 0.55;
+}
+
+.share-item-name {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.share-item-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.share-note {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 41;
+  max-width: min(88vw, 320px);
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.7;
+  background: var(--surface);
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* ── 问题反馈 ─────────────────────────────────────────────────── */
+.fb-compose {
+  margin-bottom: 20px;
+}
+
+.fb-compose textarea {
+  width: 100%;
+  font-size: 16px; /* 小于 16px 时 iOS 会自动放大页面 */
+  line-height: 1.7;
+  padding: 10px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  margin-bottom: 10px;
+}
+
+.fb-ok {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.fb-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.fb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-2);
+  border-radius: 4px;
+  padding: 12px 14px;
+}
+
+/* 待修复的用强调色标出来——这张清单存在的意义就是「还有什么没处理」。 */
+.fb-item.s-open {
+  border-left-color: var(--accent);
+}
+
+.fb-item.s-fixed,
+.fb-item.s-wontfix {
+  opacity: 0.72;
+}
+
+.fb-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chip.fb-open {
+  color: var(--accent);
+  border-color: var(--accent-bright);
+}
+
+.chip.fb-fixed,
+.chip.fb-wontfix {
+  color: var(--text-3);
+}
+
+.fb-id,
+.fb-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.fb-time {
+  margin-left: auto;
+}
+
+.fb-body {
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fb-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.fb-meta code {
+  font-size: 11.5px;
+}
+
+.fb-resolution {
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.fb-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fb-detail textarea {
+  width: 100%;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 8px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+
+.fb-env,
+.fb-env-table {
+  font-size: 12px;
+}
+
+.fb-env {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fb-foot {
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
 /* ── 环境自查页 ─────────────────────────────────────────────── */
 .diag-table {
   display: flex;
@@ -1966,4 +2180,84 @@ html[data-theme='dark'] .sel-btn.primary,
 
 .pe-math .katex {
   font-size: 1.04em;
+}
+
+/* ── 打印 / 存为 PDF ──────────────────────────────────────────────
+   打印时页面要变成一份文档，而不是一个应用界面：导航、浮层、按钮
+   都不该出现在纸上。走浏览器自带的打印能力，而不是自己做 PDF——
+   纯 Go 的 HTML→PDF 要么依赖外部二进制（违背「单文件、无运行时依赖」），
+   要么自己排版，中文和 Markdown 的排版会做成半吊子。 */
+@media print {
+  /* 屏幕上的骨架在纸上没有意义：网格、滚动容器、固定定位全部拆掉，
+     否则正文会被限制在一个屏幕高度的框里，只印出第一页。 */
+  .app,
+  .body {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .main {
+    overflow: visible !important;
+  }
+
+  .topbar,
+  .sidebar,
+  .sidebar-backdrop,
+  .toc,
+  .reader-actions,
+  .mobile-anchor,
+  .sel-popup,
+  .ann-popup,
+  .stale-banner,
+  .diff-bar,
+  .tag-editor-add,
+  .share-menu,
+  .share-note {
+    display: none !important;
+  }
+
+  .reader {
+    max-width: none;
+    padding: 0;
+  }
+
+  body,
+  .prose {
+    color: #000;
+    background: #fff;
+  }
+
+  /* 批注高亮用底色印出来会糊成一片，改成下划线，黑白打印也认得出。 */
+  .ann-layer {
+    display: none !important;
+  }
+
+  /* 图片和代码块不要被切成两页。 */
+  .prose img,
+  .prose pre,
+  .prose table {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    max-width: 100% !important;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* 纸上点不了链接，把地址跟在后面。站内链接不展开——
+     印一串 #/doc/12 对读的人毫无用处。 */
+  .prose a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+
+  @page {
+    margin: 18mm 16mm;
+  }
 }

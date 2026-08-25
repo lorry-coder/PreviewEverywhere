@@ -76,6 +76,16 @@ type SaveDocInput struct {
 	Chars      int
 	Bytes      int
 	Tags       []string // 来自 front-matter / 推送参数，source = "push"
+	// Assets 是文档里的图片引用与它们对应的 blob，按出现次序排列。
+	// 导出「md + 图片」时靠它把图片放回原来的相对路径。
+	Assets []AssetRef
+}
+
+// AssetRef 是一条「原始引用 → blob」的对应关系。
+type AssetRef struct {
+	Ord int
+	Ref string // 文档里写的路径，如 ./img/arch.png
+	Sha string
 }
 
 type SaveResult struct {

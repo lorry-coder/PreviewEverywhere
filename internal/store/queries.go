@@ -190,6 +190,17 @@ func (s *Store) SaveDoc(in SaveDocInput) (SaveResult, error) {
 		return res, err
 	}
 
+	// 图片引用映射：哪个引用对应哪个 blob。渲染时这层对应关系当场就丢了
+	// （src 被换成了 /api/v1/asset/<sha>），不记下来的话，
+	// 以后要把文档连图片一起打包导出就无从还原。
+	for _, a := range in.Assets {
+		if _, err := tx.Exec(
+			`INSERT INTO asset_ref (version_id, ord, ref, sha) VALUES (?, ?, ?, ?)`,
+			res.VersionID, a.Ord, a.Ref, a.Sha); err != nil {
+			return res, fmt.Errorf("记录图片引用失败: %w", err)
+		}
+	}
+
 	// 新版本入库意味着「有新东西可读」，所以重置为未读。
 	if _, err := tx.Exec(`
 		UPDATE doc SET head_version = ?, title = ?, summary = ?, kind = ?,

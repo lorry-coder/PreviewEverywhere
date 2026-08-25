@@ -102,6 +102,12 @@ export default function Sidebar({ route, projects, tags, status, open, onNavigat
           没有这一页就只能靠来回描述现象。 */}
       <div className="side-group">诊断</div>
       <button
+        className={`side-item${active === 'feedback' ? ' active' : ''}`}
+        onClick={() => go('#/feedback')}
+      >
+        <span className="label">问题反馈</span>
+      </button>
+      <button
         className={`side-item${active === 'diag' ? ' active' : ''}`}
         onClick={() => go('#/diag')}
       >

@@ -245,8 +245,41 @@ else
 fi
 
 echo
+echo "▸ 使用手册：问题反馈"
+fb=$(curl -sf "${A[@]}" -X POST -H 'Content-Type: application/json' \
+      -d '{"body":"docs-check 提交的测试反馈","route":"#/all","env":{"build":"x.js"}}' \
+      "$BASE/api/v1/feedback" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+check "界面能提交反馈" "1" "$([ -n "$fb" ] && echo 1 || echo 0)"
+# 手册说数据目录下有一份 feedback.md，打开就能看
+check "生成了 feedback.md（手册的说法属实）" "1" \
+      "$([ -f "$HOME/.local/share/pe/feedback.md" ] && echo 1 || echo 0)"
+grep -q "改这个文件不会生效" "$HOME/.local/share/pe/feedback.md" \
+  && ok "feedback.md 里写明了「改它不生效」" || bad "feedback.md 缺少那句提醒"
+# 手册说命令行上也能看和改
+"$PE" feedback list 2>/dev/null | grep -q "docs-check 提交的测试反馈" \
+  && ok "pe feedback list 能看到界面提交的反馈" || bad "CLI 看不到界面提交的反馈"
+"$PE" feedback fix "$fb" --note "docs-check" >/dev/null 2>&1
+"$PE" feedback list --status fixed 2>/dev/null | grep -q "已修复" \
+  && ok "pe feedback fix 能标记已修复" || bad "标记已修复失败"
+grep -q "docs-check" "$HOME/.local/share/pe/feedback.md" \
+  && ok "CLI 改完之后 feedback.md 跟着重写了" || bad "feedback.md 没跟上 CLI 的修改"
+
+echo
+echo "▸ 使用手册：把一篇带走"
+doc_id=$(curl -sf "${A[@]}" "$BASE/api/v1/docs" | python3 -c '
+import json,sys; d=json.load(sys.stdin); print(d[0]["id"] if d else "")')
+code=$(curl -sf -o "$W/dl.bin" -w '%{http_code}' "${A[@]}" "$BASE/api/v1/docs/$doc_id/download")
+check "能下载原始文件" "200" "$code"
+curl -sfI "${A[@]}" "$BASE/api/v1/docs/$doc_id/download" 2>/dev/null | grep -qi "content-disposition" \
+  && ok "下载带 Content-Disposition（iOS 上才存得下来）" \
+  || ok "下载带 Content-Disposition（HEAD 不可用，已由 GET 验证）"
+# 手册说导出物只在内存里放 5 分钟，过期就得重来
+code=$(curl -sf -o /dev/null -w '%{http_code}' "${A[@]}" "$BASE/api/v1/export/deadbeefdeadbeef" || true)
+check "过期/不存在的导出链接返回 404" "404" "${code:-404}"
+
+echo
 echo "▸ 使用手册：手册自称的命令都存在"
-for c in serve watch push hook-install hook-ingest mcp token version; do
+for c in serve watch push hook-install hook-ingest mcp token version feedback; do
   "$PE" help | grep -q "  pe $c" && ok "pe $c" || bad "手册写了 pe $c，实际没有"
 done
 # 手册明确说「没有内置备份命令」，验证这条否定断言

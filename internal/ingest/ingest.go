@@ -194,10 +194,25 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 		baseDir = filepath.Dir(src.Path)
 	}
 
+	// 包一层，把「引用 → sha」记下来。渲染本身只关心换出 URL，
+	// 而导出「文档 + 图片」时需要反过来知道哪个 blob 该放回哪个路径。
+	resolved := map[string]string{}
+	base := p.assetResolver(baseDir, ref.Root, src.Assets)
+	var resolver func(string) (string, bool)
+	if base != nil {
+		resolver = func(imgRef string) (string, bool) {
+			url, ok := base(imgRef)
+			if ok {
+				resolved[imgRef] = strings.TrimPrefix(url, "/api/v1/asset/")
+			}
+			return url, ok
+		}
+	}
+
 	result, err := render.Render(raw, render.Options{
 		Kind:          kind,
 		FallbackTitle: titleFromFilename(filename),
-		AssetResolver: p.assetResolver(baseDir, ref.Root, src.Assets),
+		AssetResolver: resolver,
 	})
 	if err != nil {
 		return res, fmt.Errorf("渲染 %s 失败: %w", filename, err)
@@ -239,6 +254,15 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 	tocJSON, _ := json.Marshal(result.TOC)
 	blocksJSON, _ := json.Marshal(result.Blocks)
 
+	// ord 用「在全部本地图片引用里的次序」，而不是「在解析成功的里的次序」——
+	// 这样老文档走顺序配对时，两边数的是同一件事。
+	var assets []store.AssetRef
+	for i, imgRef := range result.ImageRefs {
+		if sha, ok := resolved[imgRef]; ok {
+			assets = append(assets, store.AssetRef{Ord: i, Ref: imgRef, Sha: sha})
+		}
+	}
+
 	res, err = p.st.SaveDoc(store.SaveDocInput{
 		ProjectID:  projectID,
 		RunID:      runID,
@@ -258,6 +282,7 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 		Chars:      result.Chars,
 		Bytes:      len(raw),
 		Tags:       mergeTags(src.Tags, fm.Tags),
+		Assets:     assets,
 	})
 	if err != nil {
 		return res, err

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	"previeweverywhere/internal/config"
@@ -23,10 +24,14 @@ type Server struct {
 	hub   *hub
 	// build 是内嵌前端的主脚本文件名，见 frontendBuild。
 	build string
+	// dataDir 用来重写 feedback.md 那份投影文件。
+	dataDir string
+	// stage 是导出物的临时寄存处，见 staging.go。
+	stage *staging
 }
 
 func New(st *store.Store, cfg *config.Config, pipe *ingest.Pipeline, watch *ingest.Watcher) *Server {
-	s := &Server{st: st, cfg: cfg, pipe: pipe, watch: watch, hub: newHub()}
+	s := &Server{st: st, cfg: cfg, pipe: pipe, watch: watch, hub: newHub(), stage: newStaging()}
 	if dist, err := fs.Sub(web.Dist, "dist"); err == nil {
 		s.build = frontendBuild(dist)
 	}
@@ -38,6 +43,11 @@ func New(st *store.Store, cfg *config.Config, pipe *ingest.Pipeline, watch *inge
 
 // Close 让所有 SSE 长连接收尾。必须在 http.Server.Shutdown 之前调用，
 // 否则 Shutdown 会一直等这些永不结束的连接，直到超时。
+// SetDataDir 告诉服务端数据目录在哪。只有 feedback.md 这份投影用得上。
+func (s *Server) SetDataDir(dir string) { s.dataDir = dir }
+
+func logFeedbackFileError(err error) { log.Printf("重写 feedback.md 失败: %v", err) }
+
 func (s *Server) Close() {
 	s.hub.close()
 }
@@ -58,6 +68,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/docs/{id}", s.requireAuth(s.handleDoc))
 	mux.HandleFunc("PATCH /api/v1/docs/{id}", s.requireAuth(s.handlePatchDoc))
 	mux.HandleFunc("DELETE /api/v1/docs/{id}", s.requireAuth(s.handleDeleteDoc))
+
+	mux.HandleFunc("GET /api/v1/docs/{id}/download", s.requireAuth(s.handleDownloadDoc))
+	mux.HandleFunc("POST /api/v1/export", s.requireAuth(s.handleStageExport))
+	mux.HandleFunc("GET /api/v1/export/{token}", s.requireAuth(s.handleTakeExport))
+
+	mux.HandleFunc("POST /api/v1/feedback", s.requireAuth(s.handleCreateFeedback))
+	mux.HandleFunc("GET /api/v1/feedback", s.requireAuth(s.handleListFeedback))
+	mux.HandleFunc("PATCH /api/v1/feedback/{id}", s.requireAuth(s.handlePatchFeedback))
+	mux.HandleFunc("DELETE /api/v1/feedback/{id}", s.requireAuth(s.handleDeleteFeedback))
 	mux.HandleFunc("PUT /api/v1/docs/{id}/tags", s.requireAuth(s.handleSetTags))
 	mux.HandleFunc("GET /api/v1/docs/{id}/annotations", s.requireAuth(s.handleListAnnotations))
 	mux.HandleFunc("POST /api/v1/docs/{id}/annotations", s.requireAuth(s.handleCreateAnnotation))
@@ -73,7 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.requireAuth(s.hub.serve))
 
 	mux.HandleFunc("/", s.serveFrontend())
-	return logRequests(mux)
+	return recoverPanics(logRequests(mux))
 }
 
 // serveFrontend 提供嵌进二进制的前端，并做 SPA 兜底：
@@ -159,6 +178,24 @@ func serveIndex(w http.ResponseWriter, r *http.Request, dist fs.FS) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(data)
+}
+
+// recoverPanics 把 handler 里的 panic 变成一个说得清的 500。
+//
+// net/http 自己会 recover 并保住进程，但它的做法是直接掐断连接——
+// 前端只看到「Failed to fetch」，既不知道是服务端崩了，也拿不到任何线索。
+// 实测踩过一次：某个字段忘了初始化，前端排查了半天以为是网络问题。
+func recoverPanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if v := recover(); v != nil {
+				log.Printf("处理 %s %s 时发生内部错误: %v\n%s",
+					r.Method, r.URL.Path, v, debug.Stack())
+				writeError(w, http.StatusInternalServerError, "服务端内部错误，详情见服务端日志")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func logRequests(next http.Handler) http.Handler {

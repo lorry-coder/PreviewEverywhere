@@ -11,6 +11,7 @@ export type Route =
   | { name: 'list'; project?: number; tag?: string; unread?: boolean; later?: boolean }
   | { name: 'doc'; id: number }
   | { name: 'diag' }
+  | { name: 'feedback' }
 
 export function parseHash(hash: string = location.hash): Route {
   const path = hash.replace(/^#\/?/, '')
@@ -39,6 +40,8 @@ export function parseHash(hash: string = location.hash): Route {
       return { name: 'actionable' }
     case 'diag':
       return { name: 'diag' }
+    case 'feedback':
+      return { name: 'feedback' }
     case 'search':
       return { name: 'search', q: decodeURIComponent(tail) }
     default:
@@ -48,10 +51,30 @@ export function parseHash(hash: string = location.hash): Route {
   }
 }
 
+/**
+ * 记住上一个页面，供「问题反馈」自动填「当时在哪」。
+ *
+ * 用 sessionStorage 而不是 state：反馈页是另开的一个路由，
+ * 走到那里时上一个路由已经从 state 里没了。
+ */
+function rememberRoute(hash: string) {
+  try {
+    if (!hash.startsWith('#/feedback')) sessionStorage.setItem('pe:lastRoute', hash || '#/')
+  } catch {
+    // 隐私模式下写不进去。反馈照样能提交，只是少一条上下文。
+  }
+}
+
 export function useRoute(): Route {
-  const [route, setRoute] = useState<Route>(() => parseHash())
+  const [route, setRoute] = useState<Route>(() => {
+    rememberRoute(location.hash)
+    return parseHash()
+  })
   useEffect(() => {
-    const onChange = () => setRoute(parseHash())
+    const onChange = () => {
+      rememberRoute(location.hash)
+      setRoute(parseHash())
+    }
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
@@ -76,6 +99,7 @@ export function routeKey(route: Route): string {
   if (route.name === 'search') return 'search'
   if (route.name === 'doc') return 'doc'
   if (route.name === 'diag') return 'diag'
+  if (route.name === 'feedback') return 'feedback'
   if (route.project) return `project:${route.project}`
   if (route.tag) return `tag:${route.tag}`
   if (route.unread) return 'unread'

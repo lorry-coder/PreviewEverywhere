@@ -14,6 +14,7 @@ import {
 import type { Selected } from '../annotate'
 import AnnotationLayer from '../components/AnnotationLayer'
 import AnnotationPopup from '../components/AnnotationPopup'
+import ShareMenu from '../components/ShareMenu'
 import SelectionPopup from '../components/SelectionPopup'
 import TagEditor from '../components/TagEditor'
 import { readingTime, relativeTime, spaceCJK } from '../format'
@@ -184,6 +185,7 @@ export default function Reader(props: Props) {
             >
               {doc.read ? '已读' : '标为已读'}
             </button>
+            <ShareMenu doc={doc} proseRef={bodyRef} />
             <DeleteButton doc={doc} onDeleted={onChanged} />
           </div>
         </div>

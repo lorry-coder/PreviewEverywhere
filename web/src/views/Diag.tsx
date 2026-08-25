@@ -3,6 +3,8 @@ import type { Status } from '../api'
 import { useTouchLayout } from '../components/useTouchLayout'
 import { useVisualViewport } from '../components/useVisualViewport'
 import SelectionTrace from '../components/SelectionTrace'
+import { cssEnv } from '../envSnapshot'
+import { navigate } from '../router'
 import { hardReload, loadedBuild } from '../staleCheck'
 
 /**
@@ -64,6 +66,9 @@ export default function Diag({ status }: { status: Status | null }) {
       </div>
 
       <div className="actionable-bar">
+        <button className="text-btn" onClick={() => navigate('#/feedback')}>
+          去提反馈
+        </button>
         <button className="text-btn" onClick={() => void hardReload()}>
           清缓存并重载
         </button>
@@ -99,14 +104,3 @@ function mq(q: string): string {
   return window.matchMedia?.(q).matches ? '是' : '否'
 }
 
-/** 读一个 safe-area 变量的实际像素值。CSS 里拿得到，JS 里得绕一下。 */
-function cssEnv(side: 'top' | 'bottom'): string {
-  const el = document.createElement('div')
-  el.style.position = 'fixed'
-  el.style.visibility = 'hidden'
-  el.style.height = `env(safe-area-inset-${side})`
-  document.body.appendChild(el)
-  const v = Math.round(el.getBoundingClientRect().height)
-  el.remove()
-  return `${v}px`
-}

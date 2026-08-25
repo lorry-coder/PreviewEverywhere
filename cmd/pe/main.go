@@ -36,6 +36,8 @@ func main() {
 		err = cmdWatch(os.Args[2:])
 	case "token":
 		err = cmdToken(os.Args[2:])
+	case "feedback":
+		err = cmdFeedback(os.Args[2:])
 	case "hook-ingest":
 		err = cmdHookIngest(os.Args[2:])
 	case "hook-install":
@@ -87,6 +89,15 @@ func usage() {
         以 stdio MCP server 运行，向 agent 暴露 publish_document 工具。
         与 hook 的分工是「主动 vs 被动」：hook 把每个 md 都收进来留档，
         MCP 让 agent 自己决定「这份值得给人看」并附上标题、标签和摘要。
+
+  pe feedback [list] [--status open|fixed|wontfix|all]
+  pe feedback show <编号>
+  pe feedback fix|wontfix|reopen <编号> [--note "…"]
+  pe feedback rm <编号>
+  pe feedback export [--format md|jsonl]
+        看和处理界面上提交的问题反馈。每条都带着提交时的环境快照，
+        省掉「你那边是什么环境」这一轮问答。
+        数据目录下还有一份自动生成的 feedback.md，打开就能看。
 
   pe token
         重新生成访问口令并打印二维码。需重启 pe serve 才生效，

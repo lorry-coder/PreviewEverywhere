@@ -36,6 +36,11 @@ type Result struct {
 	Kind       string
 	RenderMode string // reader | raw
 
+	// ImageRefs 是文档里的本地图片引用，按出现次序排列。
+	// 渲染时 src 被换成了平台内的 URL，原始引用当场就丢；
+	// 导出「文档 + 图片」时要靠它把图片放回原来的相对路径。
+	ImageRefs []string
+
 	HTML  string // 渲染产物；raw 模式下为空，由前端 iframe 直接取原文
 	Plain string
 	TOC   []Heading

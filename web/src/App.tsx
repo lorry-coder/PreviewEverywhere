@@ -18,6 +18,7 @@ import SearchBox from './components/SearchBox'
 import Sidebar from './components/Sidebar'
 import Actionable from './views/Actionable'
 import Diag from './views/Diag'
+import Feedback from './views/Feedback'
 import DocList from './views/DocList'
 import Reader, { TOCItem } from './views/Reader'
 import SearchResults from './views/SearchResults'
@@ -235,6 +236,8 @@ export default function App() {
             <Actionable reloadKey={reloadKey} />
           ) : route.name === 'diag' ? (
             <Diag status={status} />
+          ) : route.name === 'feedback' ? (
+            <Feedback />
           ) : route.name === 'search' ? (
             <SearchResults q={route.q} tags={tags} projects={projects} />
           ) : (

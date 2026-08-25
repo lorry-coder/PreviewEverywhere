@@ -76,6 +76,28 @@ export interface Status {
   build?: string
 }
 
+export type FeedbackStatus = 'open' | 'fixed' | 'wontfix'
+
+export const FEEDBACK_LABEL: Record<FeedbackStatus, string> = {
+  open: '待修复',
+  fixed: '已修复',
+  wontfix: '无需修复',
+}
+
+export interface Feedback {
+  id: number
+  body: string
+  status: FeedbackStatus
+  resolution?: string
+  docId?: number
+  docTitle?: string
+  route?: string
+  /** 提交时的环境快照，JSON 字符串。服务端原样透传。 */
+  env?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface SearchHit extends Doc {
   snippet: string
 }
@@ -199,6 +221,34 @@ export const api = {
       { method: 'DELETE' },
     ),
 
+  feedback: (status?: FeedbackStatus | 'all') =>
+    request<Feedback[]>(
+      `/api/v1/feedback${status && status !== 'all' ? `?status=${status}` : ''}`,
+    ),
+
+  createFeedback: (f: {
+    body: string
+    docId?: number
+    docTitle?: string
+    route?: string
+    env?: unknown
+  }) =>
+    request<Feedback>('/api/v1/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(f),
+    }),
+
+  patchFeedback: (id: number, patch: { status: FeedbackStatus; resolution?: string }) =>
+    request<Feedback>(`/api/v1/feedback/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
+
+  deleteFeedback: (id: number) =>
+    request<{ ok: boolean }>(`/api/v1/feedback/${id}`, { method: 'DELETE' }),
+
   timeline: () => request<TimelineGroup[]>('/api/v1/timeline'),
 
   search: (q: string) =>
@@ -249,6 +299,22 @@ export const api = {
     request<VersionDiff>(`/api/v1/docs/${docId}/diff?from=${from}&to=${to}`),
 
   rawURL: (versionId: number) => `/api/v1/raw/${versionId}`,
+
+  /** 原始文件下载。带图片的文档会打包成 zip，服务端决定。 */
+  downloadURL: (docId: number) => `/api/v1/docs/${docId}/download`,
+
+  /**
+   * 把前端生成的导出物交给服务端，换一个下载地址。
+   *
+   * 为什么不直接下载 Blob：iOS Safari 对 <a download> 的支持时好时坏，
+   * 而「真实 URL + Content-Disposition」一直可靠。
+   */
+  stageExport: (filename: string, mimeType: string, content: string) =>
+    request<{ url: string; expiresIn: number }>('/api/v1/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, mime: mimeType, content }),
+    }),
 }
 
 export const KIND_LABEL: Record<AnnotationKind, string> = {

@@ -70,6 +70,7 @@ func cmdServe(args []string) error {
 	}()
 
 	api := server.New(st, cfg, pipe, watcher)
+	api.SetDataDir(*dataDir)
 	srv := &http.Server{
 		Addr:    cfg.Bind,
 		Handler: api.Handler(),
