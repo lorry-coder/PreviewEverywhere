@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"previeweverywhere/internal/pdf"
 )
 
 // 导出物的临时寄存处。
@@ -106,6 +109,9 @@ func (s *Server) handleStageExport(w http.ResponseWriter, r *http.Request) {
 		Filename string `json:"filename"`
 		Mime     string `json:"mime"`
 		Content  string `json:"content"`
+		// Format 为 "pdf" 时，服务端把 Content 当作自包含 HTML 转成 PDF。
+		// 留空表示原样寄存（导出单文件 HTML 走这条）。
+		Format string `json:"format"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, stagingMaxBytes)).Decode(&body); err != nil {
 		// 「太大」和「格式不对」要分开说。混成一句的话，用户导出一篇大文档
@@ -133,7 +139,27 @@ func (s *Server) handleStageExport(w http.ResponseWriter, r *http.Request) {
 		mimeType = "text/html; charset=utf-8"
 	}
 
-	token := s.stage.put(name, mimeType, []byte(body.Content))
+	content := []byte(body.Content)
+
+	// PDF 由服务端从这份自包含 HTML 转出来。
+	//
+	// 为什么不让浏览器自己打印：手册引导用户「加到主屏」，那就是 standalone
+	// 模式，而 Safari 在这个模式下不实现 window.print()，点了没有任何反应。
+	// 为什么不在服务端从 Markdown 直接生成：图表和公式是浏览器渲染的，
+	// 服务端手上那份 HTML 还没执行过 JS，转出来图表只剩一段代码。
+	if body.Format == "pdf" {
+		out, err := pdf.Render(body.Content, pdf.Options{})
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "生成 PDF 失败: "+err.Error())
+			return
+		}
+		content = out
+		mimeType = "application/pdf"
+		// 前端传来的文件名可能已经带扩展名，不去重就会得到「评估.pdf.pdf」。
+		name = strings.TrimSuffix(strings.TrimSuffix(name, ".pdf"), ".html") + ".pdf"
+	}
+
+	token := s.stage.put(name, mimeType, content)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url":       "/api/v1/export/" + token,
 		"expiresIn": int(stagingTTL.Seconds()),

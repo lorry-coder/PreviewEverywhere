@@ -20,6 +20,14 @@
  */
 export const MAX_EXPORT_BYTES = 24 * 1024 * 1024
 
+/**
+ * 导出成什么。
+ *
+ *   html —— 自包含 HTML，浏览器怎么显示就怎么带走
+ *   pdf  —— 同一份内容，但要先绕开服务端 PDF 引擎的三处限制（见 toPDFFlavour）
+ */
+export type ExportFlavour = 'html' | 'pdf'
+
 export interface ExportResult {
   html: string
   bytes: number
@@ -39,6 +47,7 @@ export async function buildSelfContainedHTML(
   proseEl: HTMLElement,
   title: string,
   meta: string,
+  flavour: ExportFlavour = 'html',
 ): Promise<ExportResult> {
   const clone = proseEl.cloneNode(true) as HTMLElement
 
@@ -64,8 +73,98 @@ export async function buildSelfContainedHTML(
     }
   }
 
-  const html = wrap(title, meta, clone.innerHTML, collectStyles())
+  if (flavour === 'pdf') await toPDFFlavour(clone)
+
+  const html =
+    flavour === 'pdf'
+      ? wrapForPDF(title, meta, clone.innerHTML)
+      : wrap(title, meta, clone.innerHTML, collectStyles())
   return { html, bytes: new Blob([html]).size, images, missing }
+}
+
+/**
+ * 把正文改造成服务端 PDF 引擎吃得下的样子。
+ *
+ * 三处限制都是实测出来的，不是照抄文档：
+ *
+ *  1. <pre> 标签会被强制用 PDF 内置的等宽字体，而那是拉丁专用字体——
+ *     代码块里的中文注释会整片变成 ???。换成 white-space: pre-wrap 的
+ *     div 就正常了（同样的样式加在 div 上没有这个问题，只有标签本身有）。
+ *  2. SVG 里的文字只能用 PDF 内置的 14 种标准字体，中文必然乱码。
+ *     所以把每个 SVG 先在浏览器里光栅化成 PNG——mermaid 图表的中文标签
+ *     因此得以保住，代价是图表文字不可选。
+ *  3. 图片会被拉伸到超过原始尺寸，需要显式限住。
+ */
+async function toPDFFlavour(root: HTMLElement): Promise<void> {
+  for (const pre of Array.from(root.querySelectorAll('pre'))) {
+    const div = document.createElement('div')
+    div.className = 'pe-code'
+    div.textContent = pre.textContent ?? ''
+    pre.replaceWith(div)
+  }
+
+  for (const svg of Array.from(root.querySelectorAll('svg'))) {
+    const png = await svgToPNG(svg)
+    if (!png) {
+      // 转不出来就留个说明，好过塞一张中文乱码的图。
+      const note = document.createElement('div')
+      note.className = 'pe-code'
+      note.textContent = '（此处有一张图表，导出 PDF 时未能转换）'
+      svg.replaceWith(note)
+      continue
+    }
+    const img = document.createElement('img')
+    img.src = png.data
+    img.setAttribute('width', String(png.width))
+    svg.replaceWith(img)
+  }
+}
+
+/**
+ * 把一个 SVG 画成 PNG。
+ *
+ * 用 2 倍分辨率是因为 PDF 里会按 CSS 像素摆放，1 倍在纸上会糊。
+ * 失败就返回 null——一张转不出来的图表不该让整次导出失败。
+ */
+async function svgToPNG(
+  svg: SVGElement,
+): Promise<{ data: string; width: number } | null> {
+  try {
+    const rect = svg.getBoundingClientRect()
+    const w = Math.max(1, Math.round(rect.width || 320))
+    const h = Math.max(1, Math.round(rect.height || 180))
+
+    const clone = svg.cloneNode(true) as SVGElement
+    clone.setAttribute('width', String(w))
+    clone.setAttribute('height', String(h))
+    if (!clone.getAttribute('xmlns')) {
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    }
+    const url =
+      'data:image/svg+xml;charset=utf-8,' +
+      encodeURIComponent(new XMLSerializer().serializeToString(clone))
+
+    const img = new Image()
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('svg load'))
+      img.src = url
+    })
+
+    const scale = 2
+    const canvas = document.createElement('canvas')
+    canvas.width = w * scale
+    canvas.height = h * scale
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    // 白底：PDF 是白纸，透明背景在深色主题下导出会变成黑块。
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    return { data: canvas.toDataURL('image/png'), width: w }
+  } catch {
+    return null
+  }
 }
 
 /** 把同源资源抓成 data URI。抓不到就返回空——缺一张图不该让整次导出失败。 */
@@ -143,6 +242,52 @@ body{margin:0;background:var(--surface,#fff)}
   <div class="prose">${body}</div>
   <div class="pe-export-foot">由 PreviewEverywhere 导出于 ${new Date().toLocaleString()}</div>
 </div>
+</body>
+</html>`
+}
+
+/**
+ * PDF 专用的页面骨架。
+ *
+ * 刻意不套应用样式表：里面有自定义属性、color-mix()、媒体查询这类
+ * 服务端 PDF 引擎消化不了的东西，硬塞进去只会得到一份排版错乱的文件。
+ * 这里写一套明确、克制、只用基础属性的样式。
+ */
+function wrapForPDF(title: string, meta: string, body: string): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>${escapeHTML(title)}</title>
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+body { font-size: 10.5pt; line-height: 1.75; color: #1a1c1b; }
+h1 { font-size: 19pt; margin: 0 0 4px; }
+h2 { font-size: 14pt; margin: 20px 0 8px; }
+h3 { font-size: 12pt; margin: 16px 0 6px; }
+p, li { margin: 0 0 10px; }
+ul, ol { padding-left: 22px; }
+a { color: #1a5fb4; }
+img { max-width: 100%; height: auto; }
+blockquote { margin: 0 0 12px; padding-left: 12px; border-left: 3px solid #c08a22; color: #555; }
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin-bottom: 12px; }
+th, td { border: 1px solid #ddd; padding: 6px 9px; text-align: left; }
+th { background: #f4f4f2; }
+code { font-size: 9.5pt; }
+/* 代码块用 div 而不是 pre：pre 标签会被强制用拉丁专用的内置等宽字体，
+   里面的中文注释会整片变成 ???。 */
+.pe-code { background: #f4f4f2; padding: 10px 12px; margin: 0 0 12px;
+  white-space: pre-wrap; font-size: 9pt; line-height: 1.6; }
+.pe-head { border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 22px; }
+.pe-meta { font-size: 8.5pt; color: #777; }
+</style>
+</head>
+<body>
+<div class="pe-head">
+  <h1>${escapeHTML(title)}</h1>
+  <div class="pe-meta">${escapeHTML(meta)}</div>
+</div>
+${body}
 </body>
 </html>`
 }

@@ -309,11 +309,11 @@ export const api = {
    * 为什么不直接下载 Blob：iOS Safari 对 <a download> 的支持时好时坏，
    * 而「真实 URL + Content-Disposition」一直可靠。
    */
-  stageExport: (filename: string, mimeType: string, content: string) =>
+  stageExport: (filename: string, mimeType: string, content: string, format?: 'pdf') =>
     request<{ url: string; expiresIn: number }>('/api/v1/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, mime: mimeType, content }),
+      body: JSON.stringify({ filename, mime: mimeType, content, format }),
     }),
 }
 

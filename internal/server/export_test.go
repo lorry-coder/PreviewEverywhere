@@ -135,3 +135,18 @@ func TestStagingSingleOversized(t *testing.T) {
 		t.Fatal("放入超大内容时卡死了")
 	}
 }
+
+// 前端传来的文件名已经带扩展名，服务端再补一个就成了「评估.pdf.pdf」。
+func TestExportFilenameNoDoubleExtension(t *testing.T) {
+	cases := map[string]string{
+		"评估.pdf":  "评估.pdf",
+		"评估.html": "评估.pdf",
+		"评估":      "评估.pdf",
+	}
+	for in, want := range cases {
+		got := strings.TrimSuffix(strings.TrimSuffix(safeFileName(in), ".pdf"), ".html") + ".pdf"
+		if got != want {
+			t.Errorf("%q → %q，期望 %q", in, got, want)
+		}
+	}
+}
