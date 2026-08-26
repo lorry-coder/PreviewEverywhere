@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Status } from '../api'
+import { api, type Status } from '../api'
 import { useTouchLayout } from '../components/useTouchLayout'
 import { useVisualViewport } from '../components/useVisualViewport'
 import SelectionTrace from '../components/SelectionTrace'
@@ -20,6 +20,22 @@ export default function Diag({ status }: { status: Status | null }) {
   const vv = useVisualViewport()
   const [tick, setTick] = useState(0)
 
+  // 自己去问一次服务端，不用外层传下来的那份。
+  //
+  // 外层的 status 是页面挂载时拉的，而手机上的标签页常常一开就是好几天。
+  // 用那份旧数据来判断「我是不是在跑旧缓存」，会得出「不是」这个正好相反的
+  // 结论——诊断工具被它要诊断的问题骗到了，比没有诊断工具更糟。
+  const [fresh, setFresh] = useState<Status | null>(null)
+  useEffect(() => {
+    api
+      .status()
+      .then(setFresh)
+      .catch(() => {
+        /* 拿不到就退回外层那份，至少还能看别的字段 */
+      })
+  }, [])
+  const live = fresh ?? status
+
   // 地址栏收起／展开、键盘升降都会改变这些数字，让它自己刷新。
   useEffect(() => {
     const t = window.setInterval(() => setTick((n) => n + 1), 500)
@@ -27,8 +43,8 @@ export default function Diag({ status }: { status: Status | null }) {
   }, [])
 
   const loaded = loadedBuild()
-  const serverBuild = status?.build ?? '(拿不到)'
-  const stale = !!status?.build && !!loaded && status.build !== loaded
+  const serverBuild = live?.build ?? '(拿不到)'
+  const stale = !!live?.build && !!loaded && live.build !== loaded
 
   const rows: [string, string, boolean?][] = [
     ['前端版本（浏览器在跑）', loaded || '(开发模式)'],

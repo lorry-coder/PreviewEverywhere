@@ -89,6 +89,31 @@ export default function App() {
       })
   }, [auth, reloadKey])
 
+  // 页面重新可见时重新核对一次前端版本。
+  //
+  // 为什么必须有这一下：手机上的标签页常常一开就是好几天，而 status 只在
+  // 挂载时拉过一次。服务端更新之后，这个标签里跑的还是旧 JS，
+  // 界面上却没有任何迹象——切回来点按钮，得到的是「改了但没生效」的错觉。
+  // 实测因此白白排查过一轮。重新可见时拉一次，旧前端提示条才有机会亮起来。
+  useEffect(() => {
+    if (auth !== 'in') return
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      api
+        .status()
+        .then(setStatus)
+        .catch(() => {
+          /* 拿不到就算了，下次可见时再说 */
+        })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [auth])
+
   // 文档一入库就推过来，页面开着的时候不用下拉刷新。
   useEffect(() => {
     if (auth !== 'in') return
