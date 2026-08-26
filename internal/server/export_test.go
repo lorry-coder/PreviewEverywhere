@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // zip 里的路径必须落在包内。解压工具照做的话，一条 ../ 就能把文件写到包外面去。
@@ -97,5 +98,40 @@ func TestStagingExpiryAndCap(t *testing.T) {
 	}
 	if len(st.items) > stagingMaxItems {
 		t.Errorf("寄存数量突破了上限: %d", len(st.items))
+	}
+}
+
+// 只限单份是不够的：8 份各 48MB 就是 384MB，跑在 NAS 上足以把内存吃光。
+// 总字节必须也有预算。
+func TestStagingTotalBudget(t *testing.T) {
+	st := newStaging()
+	chunk := make([]byte, stagingBudget/3)
+	for i := 0; i < 6; i++ {
+		st.put("big.html", "text/html", chunk)
+	}
+	st.mu.Lock()
+	total := st.bytesLocked()
+	st.mu.Unlock()
+	if total > stagingBudget {
+		t.Errorf("寄存区总字节 %d 超出预算 %d", total, stagingBudget)
+	}
+	if total == 0 {
+		t.Error("全被挤掉了，最后一份应当留下")
+	}
+}
+
+// 单份就超预算时也得让它进来，由请求体上限去兜底，
+// 而不是在这里陷进「挤空了还是放不下」的死循环。
+func TestStagingSingleOversized(t *testing.T) {
+	st := newStaging()
+	done := make(chan bool, 1)
+	go func() {
+		st.put("huge.html", "text/html", make([]byte, stagingBudget*2))
+		done <- true
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("放入超大内容时卡死了")
 	}
 }

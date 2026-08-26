@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -21,7 +23,12 @@ import (
 const (
 	stagingTTL      = 5 * time.Minute
 	stagingMaxItems = 8
-	stagingMaxBytes = 64 << 20 // 单份上限，也是内存占用的天花板
+	// 单份请求体的上限。前端会把内容压在更低的水位（见 exportDoc.ts），
+	// 这里留出 JSON 转义的余量。
+	stagingMaxBytes = 48 << 20
+	// 整个寄存区的内存预算。只限单份是不够的——8 份各 48MB 就是 384MB，
+	// 跑在 NAS 上足以把内存吃光。超预算时从最早的开始挤。
+	stagingBudget = 96 << 20
 )
 
 type stagedFile struct {
@@ -43,8 +50,11 @@ func (s *staging) put(name, mimeType string, data []byte) string {
 	defer s.mu.Unlock()
 	s.sweepLocked()
 
-	// 满了就把最早过期的挤掉。导出是即时动作，旧的没人要了。
-	for len(s.items) >= stagingMaxItems {
+	// 条数或总字节超了就从最早的开始挤。导出是即时动作，旧的没人要了。
+	for len(s.items) >= stagingMaxItems || s.bytesLocked()+len(data) > stagingBudget {
+		if len(s.items) == 0 {
+			break // 单份就超预算：让它进来，由 stagingMaxBytes 兜底
+		}
 		var oldest string
 		var t time.Time
 		for k, v := range s.items {
@@ -73,6 +83,14 @@ func (s *staging) take(token string) (stagedFile, bool) {
 	return f, ok
 }
 
+func (s *staging) bytesLocked() int {
+	n := 0
+	for _, v := range s.items {
+		n += len(v.data)
+	}
+	return n
+}
+
 func (s *staging) sweepLocked() {
 	now := time.Now()
 	for k, v := range s.items {
@@ -90,7 +108,16 @@ func (s *Server) handleStageExport(w http.ResponseWriter, r *http.Request) {
 		Content  string `json:"content"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, stagingMaxBytes)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "导出内容太大或格式不对")
+		// 「太大」和「格式不对」要分开说。混成一句的话，用户导出一篇大文档
+		// 失败时无从判断该缩小内容还是该报 bug。
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("这篇导出后超过了 %d MB。图片转成内联会比原来大约三分之一，"+
+					"可以改用「打印 / 存为 PDF」。", stagingMaxBytes>>20))
+			return
+		}
+		writeError(w, http.StatusBadRequest, "导出请求格式不对")
 		return
 	}
 	if body.Content == "" {

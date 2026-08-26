@@ -2189,16 +2189,26 @@ html[data-theme='dark'] .sel-btn.primary,
    要么自己排版，中文和 Markdown 的排版会做成半吊子。 */
 @media print {
   /* 屏幕上的骨架在纸上没有意义：网格、滚动容器、固定定位全部拆掉，
-     否则正文会被限制在一个屏幕高度的框里，只印出第一页。 */
+     否则正文会被限制在一个屏幕高度的框里，只印出第一页。
+
+     html/body 的 height:100% 是这条里最关键的一项——屏幕上它撑起整屏，
+     打印时却把文档钉死在一页高，后面全被裁掉。 */
+  html,
+  body,
+  #root,
   .app,
   .body {
     display: block !important;
     height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
   }
 
-  .main {
+  .main,
+  .prose-wrap {
     overflow: visible !important;
+    height: auto !important;
   }
 
   .topbar,
@@ -2211,9 +2221,12 @@ html[data-theme='dark'] .sel-btn.primary,
   .ann-popup,
   .stale-banner,
   .diff-bar,
-  .tag-editor-add,
+  .tag-add,
+  .tag-chip-x,
   .share-menu,
-  .share-note {
+  .share-note,
+  .rebind-bar,
+  .topbar-stat {
     display: none !important;
   }
 

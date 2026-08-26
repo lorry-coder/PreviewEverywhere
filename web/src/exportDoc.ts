@@ -10,8 +10,15 @@
  * 之后，一个文件就是全部，离线也能看。
  */
 
-/** 单份导出的上限。data URI 会让体积比原始图片大约三分之一。 */
-export const MAX_EXPORT_BYTES = 48 * 1024 * 1024
+/**
+ * 单份导出的上限。
+ *
+ * data URI 会让体积比原始图片大约三分之一，再经 JSON 转义送到服务端还要再涨一点，
+ * 所以这个数要明显低于服务端的接收上限（48MB），留够余量。
+ * 另一个理由更实际：手机上把几十兆的字符串在内存里搬来搬去本身就吃不消，
+ * 而这个平台的主场就是手机。
+ */
+export const MAX_EXPORT_BYTES = 24 * 1024 * 1024
 
 export interface ExportResult {
   html: string
