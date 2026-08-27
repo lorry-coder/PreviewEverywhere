@@ -59,7 +59,7 @@ func (s *Server) handleDownloadDoc(w http.ResponseWriter, r *http.Request) {
 
 	// 没有图片就直接给原文——为一个纯文本文档套个 zip 是给人添麻烦。
 	if ex.refCount == 0 {
-		serveDownload(w, ex.name+ex.ext, mimeForExt(ex.ext), ex.raw)
+		serveDownload(w, ex.name+ex.ext, mimeForExt(ex.ext), ex.raw, wantsInline(r))
 		return
 	}
 
@@ -68,7 +68,7 @@ func (s *Server) handleDownloadDoc(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	serveDownload(w, ex.name+".zip", "application/zip", buf)
+	serveDownload(w, ex.name+".zip", "application/zip", buf, wantsInline(r))
 }
 
 func (s *Server) collectExport(detail *store.DocDetail, versionID int64) (*exportedDoc, error) {
@@ -279,16 +279,34 @@ func safeFileName(title string) string {
 	return name
 }
 
-// serveDownload 让浏览器把响应当成下载而不是当页面打开。
+// serveDownload 把响应交给浏览器。
+//
+// disposition 只有两种取值，而这个区别在 iOS 上是决定性的：
+//
+//	attachment  浏览器里正常下载到「文件」。桌面和 Safari 标签页都用它。
+//	inline      让浏览器就地显示。**主屏 App 模式下必须用它**——
+//	            那里带 attachment 的响应会得到一个占满屏幕的文件图标和
+//	            「在……中打开」，既下载不了，也回不到 App；
+//	            换成 inline，PDF 会正常渲染出来，系统分享按钮才有东西可分享。
+//	            这是 WebKit 在 standalone 下的已知缺口，绕不过去，只能让开。
 //
 // filename* 用 RFC 5987 编码，中文标题才不会在下载时变成乱码或被截断。
-func serveDownload(w http.ResponseWriter, filename, contentType string, data []byte) {
+func serveDownload(w http.ResponseWriter, filename, contentType string, data []byte, inline bool) {
+	kind := "attachment"
+	if inline {
+		kind = "inline"
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`,
-			asciiFallback(filename), urlEncode(filename)))
+		fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`,
+			kind, asciiFallback(filename), urlEncode(filename)))
 	w.Write(data)
+}
+
+// wantsInline 判断请求方要不要就地显示。主屏 App 会带上 inline=1。
+func wantsInline(r *http.Request) bool {
+	return r.URL.Query().Get("inline") == "1"
 }
 
 func asciiFallback(name string) string {

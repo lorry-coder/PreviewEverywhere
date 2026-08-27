@@ -22,12 +22,25 @@ export function isStandalone(): boolean {
   return (navigator as unknown as { standalone?: boolean }).standalone === true
 }
 
+/**
+ * 把导出物交给浏览器。
+ *
+ * 两条路，分岔点是「是不是主屏 App」：
+ *
+ *   浏览器标签  <a download> + Content-Disposition: attachment，
+ *               正常下载到「文件」，页面留在原处。
+ *
+ *   主屏 App    iOS 在这个模式下**不支持下载**。带 attachment 的响应会得到
+ *               一个占满屏幕的文件图标和「在……中打开」，既存不下来也回不去；
+ *               新开一个应用内浏览器去拿也只会得到一张白页。
+ *               所以改成请求 inline，让它就地显示出来——PDF 会正常渲染，
+ *               再用系统的分享按钮保存或转发。这是 WebKit 的已知缺口，
+ *               绕不过去，只能让开。
+ */
 export function triggerDownload(url: string, filename?: string) {
-  // 独立窗口里交给 Safari 去下载：新开一个浏览器标签，
-  // PWA 窗口原封不动，从 App 切换器切回来即可。
-  // 留在当前窗口的话就会掉进那个回不来的文件界面。
   if (isStandalone()) {
-    window.open(url, '_blank')
+    const sep = url.includes('?') ? '&' : '?'
+    window.open(url + sep + 'inline=1', '_blank')
     return
   }
 

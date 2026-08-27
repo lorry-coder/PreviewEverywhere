@@ -1,6 +1,8 @@
 package server
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +149,33 @@ func TestExportFilenameNoDoubleExtension(t *testing.T) {
 		got := strings.TrimSuffix(strings.TrimSuffix(safeFileName(in), ".pdf"), ".html") + ".pdf"
 		if got != want {
 			t.Errorf("%q → %q，期望 %q", in, got, want)
+		}
+	}
+}
+
+// inline 与 attachment 的区别在 iOS 上是决定性的：主屏 App 模式下带
+// attachment 的响应既下载不了也回不去，只有 inline 才能就地显示出来。
+func TestDispositionInlineVsAttachment(t *testing.T) {
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"", "attachment"},
+		{"?inline=0", "attachment"},
+		{"?inline=1", "inline"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/docs/1/download"+c.query, nil)
+		rec := httptest.NewRecorder()
+		serveDownload(rec, "甲.pdf", "application/pdf", []byte("%PDF-1.7"), wantsInline(req))
+
+		got := rec.Header().Get("Content-Disposition")
+		if !strings.HasPrefix(got, c.want+";") {
+			t.Errorf("%q → %q，期望以 %s 开头", c.query, got, c.want)
+		}
+		// 无论哪种，中文文件名都要有 RFC 5987 那一份，否则在「文件」里会是乱码
+		if !strings.Contains(got, "filename*=UTF-8''") {
+			t.Errorf("%q 缺少 RFC 5987 文件名: %s", c.query, got)
 		}
 	}
 }

@@ -173,5 +173,5 @@ func (s *Server) handleTakeExport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "这份导出已经过期了，回去重新点一次即可")
 		return
 	}
-	serveDownload(w, f.name, f.mime, f.data)
+	serveDownload(w, f.name, f.mime, f.data, wantsInline(r))
 }

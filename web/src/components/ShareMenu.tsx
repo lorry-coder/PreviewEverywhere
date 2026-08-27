@@ -81,22 +81,28 @@ export default function ShareMenu({
           <button
             className="share-item"
             disabled={busy !== ''}
-            onClick={() => void runExport('html')}
+            onClick={() => void runExport('pdf')}
           >
-            <span className="share-item-name">
-              {busy === 'html' ? '正在生成…' : '导出单文件 HTML'}
+            <span className="share-item-name">{busy === 'pdf' ? '正在生成…' : '导出 PDF'}</span>
+            <span className="share-item-hint">
+              {standalone
+                ? '打开后用右上角的分享按钮保存或转发'
+                : '文字可选可搜；图表会转成图片，因此不可选'}
             </span>
-            <span className="share-item-hint">图片、公式、图表全在一个文件里，离线可看</span>
           </button>
 
           <button
             className="share-item"
             disabled={busy !== ''}
-            onClick={() => void runExport('pdf')}
+            onClick={() => void runExport('html')}
           >
-            <span className="share-item-name">{busy === 'pdf' ? '正在生成…' : '导出 PDF'}</span>
+            <span className="share-item-name">
+              {busy === 'html' ? '正在生成…' : '导出单文件 HTML'}
+            </span>
             <span className="share-item-hint">
-              文字可选可搜；图表会转成图片，因此不可选
+              {standalone
+                ? '主屏 App 里只能打开看，存不下来——想保存请用「导出 PDF」'
+                : '图片、公式、图表全在一个文件里，离线可看'}
             </span>
           </button>
 
@@ -125,7 +131,9 @@ export default function ShareMenu({
           >
             <span className="share-item-name">下载原始文件</span>
             <span className="share-item-hint">
-              原文一字未改；带图片时会连图片打包成 zip
+              {standalone
+                ? '主屏 App 里下载不了；要拿源码请在 Safari 里打开本站'
+                : '原文一字未改；带图片时会连图片打包成 zip'}
             </span>
           </button>
         </div>
