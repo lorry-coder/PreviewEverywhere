@@ -1488,6 +1488,46 @@ html[data-theme='dark'] .ann-rect,
   line-height: 1.5;
 }
 
+/* 主屏 App 下的说明与地址。iOS 在这个模式下不支持下载文件，
+   所以这里的正事是把地址交到用户手上，让他去 Safari 里打开。 */
+.share-safari {
+  margin-top: 4px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-safari p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+/* 地址栏。菜单只有 260px 宽，而地址往往更长，所以把它放宽到菜单之外，
+   并且允许横向滚动——截断的地址复制出来是错的，比不显示更糟。 */
+.share-safari input {
+  width: 100%;
+  font-family: var(--mono);
+  /* 小于 16px 时 iOS 会在聚焦时自动放大页面，而这个框是给人轻触全选的。 */
+  font-size: 16px;
+  padding: 8px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text);
+  /* 只读框默认不能滚，显式打开，好让人确认地址是完整的。 */
+  overflow-x: auto;
+  text-overflow: clip;
+}
+
+/* 主屏 App 下菜单里多了一段说明和一行地址，窄一点就摆不下了。 */
+.share-menu:has(.share-safari) {
+  min-width: min(92vw, 340px);
+}
+
 .share-note {
   position: absolute;
   right: 0;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, type DocDetail } from '../api'
 import { isStandalone, triggerDownload } from '../download'
 import { buildSelfContainedHTML, MAX_EXPORT_BYTES, type ExportFlavour } from '../exportDoc'
+import { copyText } from '../clipboard'
 import { relativeTime } from '../format'
 
 /**
@@ -11,6 +12,23 @@ import { relativeTime } from '../format'
  * 的正常用法是局域网 http，那里它根本不存在（剪贴板也是同样的原因）。
  * 所以分享只能落到「下载成文件」，再由系统的文件应用去分享。
  */
+/**
+ * 这篇文档的完整地址，用来在 Safari 里打开。
+ *
+ * 刻意自己拼而不是用 location.href：扫码登录落地时地址里带过访问口令，
+ * 虽然前端随后就把它抹掉了，但拼一个干净的出来更稳妥——
+ * 这行字是要被复制、被转发的。
+ */
+/** 点一下整行选中。推迟一拍是因为焦点的默认行为会把当场设好的选区覆盖掉。 */
+function selectAllSoon(e: React.FocusEvent<HTMLInputElement> | React.MouseEvent<HTMLInputElement>) {
+  const el = e.currentTarget
+  window.setTimeout(() => el.setSelectionRange(0, el.value.length), 0)
+}
+
+function docURL(id: number): string {
+  return `${location.origin}${location.pathname}#/doc/${id}`
+}
+
 export default function ShareMenu({
   doc,
   proseRef,
@@ -21,6 +39,7 @@ export default function ShareMenu({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState('')
+  const [urlCopied, setUrlCopied] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
   // 「加到主屏」之后 Safari 不实现 window.print()，点了没有任何反应。
   // 与其留一个死按钮，不如在这个模式下直接不显示——PDF 由「导出 PDF」产出。
@@ -33,6 +52,10 @@ export default function ShareMenu({
     }
     document.addEventListener('pointerdown', onDown)
     return () => document.removeEventListener('pointerdown', onDown)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) setUrlCopied(false)
   }, [open])
 
   const runExport = async (flavour: ExportFlavour) => {
@@ -136,6 +159,41 @@ export default function ShareMenu({
                 : '原文一字未改；带图片时会连图片打包成 zip'}
             </span>
           </button>
+
+          {standalone && (
+            <div className="share-safari">
+              <p>
+                要把文件真正存下来，请在 <b>Safari</b> 里打开下面这个地址——
+                主屏 App 模式下 iOS 不支持下载文件。
+              </p>
+              <input
+                readOnly
+                value={docURL(doc.id)}
+                // 点一下就整行选中，省掉手动拖两个把手。
+                //
+                // 必须推迟一拍：在 focus 处理里设选区会被浏览器随后的默认行为
+                // （把光标放到末尾）覆盖掉，实测就是这样，当场设完读回来是 0。
+                onFocus={selectAllSoon}
+                onClick={selectAllSoon}
+                // 点地址栏不该把菜单收起来
+                onPointerDown={(e) => e.stopPropagation()}
+              />
+              <div className="sel-row">
+                <button
+                  className="sel-btn"
+                  onClick={async () => {
+                    // 局域网是 http，剪贴板接口可能根本不存在；复制不成也没关系，
+                    // 上面那个只读框长按就能全选，所以这里如实反映成败即可。
+                    setUrlCopied(await copyText(docURL(doc.id)))
+                    window.setTimeout(() => setUrlCopied(false), 2500)
+                  }}
+                >
+                  {urlCopied ? '已复制' : '复制地址'}
+                </button>
+                <span className="sel-hint">复制不成就长按上面那行全选</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
