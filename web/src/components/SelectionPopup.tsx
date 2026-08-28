@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { AnnotationKind } from '../api'
 import { readSelectionState, type Selected } from '../annotate'
 import { placePopup } from '../popupPlacement'
-import { CONFIRM_MS, nextStep, sameAnchor } from '../selectionCommit'
+import { CONFIRM_MS, eventDelay, nextStep, sameAnchor } from '../selectionCommit'
 import { checkDelay, graceOnEnd, graceOnStart, inGrace } from '../touchGrace'
 import { useTouchLayout } from './useTouchLayout'
 import { useVisualViewport } from './useVisualViewport'
@@ -136,12 +136,12 @@ export default function SelectionPopup({
 
   // 指针抬起、以及选区本身发生变化，都要重新看一眼。
   useEffect(() => {
-    // 参考实现用 10ms（recogito/text-annotator-js）。此前这里是 60ms，
-    // 那是在为「读不出选区就当没选区」的误判争取缓冲时间；
-    // 误判修掉之后就没必要了，短一点手感更跟手。
+    // 平时隔 10ms 去读（让浏览器先把选区结算完），但确认周期进行中时
+    // 必须保持 180ms 的间距——见 eventDelay 里的说明，那是气泡在手指
+    // 抬起瞬间自己消失的成因。
     const check = () => {
       window.clearTimeout(timerRef.current)
-      timerRef.current = window.setTimeout(evaluate, 10)
+      timerRef.current = window.setTimeout(evaluate, eventDelay(rechecksRef.current))
     }
     // 用 pointerup 而不是 mouseup + touchend：一个事件同时覆盖鼠标与触摸，
     // 而且挂在 document 上——鼠标在正文之外松开（划到页边、划出容器）

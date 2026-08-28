@@ -237,7 +237,8 @@ echo "  ✓ 11 条宽限期用例通过（核心：宽限期一定会到期）"
 mv "$TMP/selectionCommit.js" "$TMP/selectionCommit.mjs"
 
 cat > "$TMP/commit.mjs" <<'JS'
-import { nextStep, sameAnchor, CONFIRM_MS, MAX_RECHECKS } from './selectionCommit.mjs'
+import { nextStep, sameAnchor, eventDelay,
+         CONFIRM_MS, EVENT_DELAY, MAX_RECHECKS } from './selectionCommit.mjs'
 
 let bad = 0
 const check = (name, got, want) => {
@@ -296,10 +297,52 @@ for (let i = 0; i < 100; i++) {
 check('持续抖动时确认次数有界', loops <= 100 && rechecks <= MAX_RECHECKS, true)
 check('确认间隔是正数', CONFIRM_MS > 0, true)
 
+// 事件不许把确认窗口冲掉。
+//
+// 这条是气泡「手指一松就消失」的成因：原先每个事件都把待执行的检查重置成
+// 10ms，而手指抬起的瞬间 iOS 会连发好几个事件。于是本该间隔 180ms 的两次
+// 读数变成 10ms 内接连发生，确认窗口塌缩为零，一个瞬时的「读不到选区」
+// 就被当成了结论。确认机制的全部价值就在于两次读数隔得够开。
+check('平时用短延迟，跟手', eventDelay(0), EVENT_DELAY)
+check('确认周期进行中 → 保持确认间隔', eventDelay(1), CONFIRM_MS)
+check('确认了多次也不缩短', eventDelay(5), CONFIRM_MS)
+check('确认间隔明显长于普通延迟', CONFIRM_MS > EVENT_DELAY * 5, true)
+
+// 走一遍真实时序：手指抬起的瞬间，iOS 有一小段读不到选区的空窗，
+// 随后选区恢复（文字仍然是选中的）。
+//
+// 事件会被合并——每个事件都清掉待执行的检查再重排，所以连发三个事件
+// 只产生一次读取。真正决定成败的是**第二次读取排在多久之后**：
+// 排得太近就落在空窗里，两次都读到空，气泡被收掉；
+// 排到确认间隔之后，选区已经恢复，气泡留住。
+{
+  const A = { blk: 'aaa', startOff: 0, endOff: 5 }
+  // 空窗有多长（毫秒）。读取时刻落在这之内就读不到选区。
+  const BLANK_UNTIL = 120
+
+  function run(spacing) {
+    let last = A, rechecks = 0, t = 0, committed = 'A'
+    for (let i = 0; i < 4; i++) {
+      t += i === 0 ? EVENT_DELAY : spacing
+      const cur = t < BLANK_UNTIL ? null : A
+      const step = nextStep(last, cur, rechecks, true)
+      last = cur
+      if (step.action === 'recheck') { rechecks++; continue }
+      rechecks = 0
+      committed = cur ? 'A' : '空'
+    }
+    return committed
+  }
+
+  check('第二次读数排得太近 → 落在空窗里，气泡被误收', run(EVENT_DELAY), '空')
+  check('按确认间隔排 → 选区已恢复，气泡留住', run(CONFIRM_MS), 'A')
+  check('确认间隔必须长过这段空窗', CONFIRM_MS > BLANK_UNTIL, true)
+}
+
 process.exit(bad ? 1 : 0)
 JS
 node "$TMP/commit.mjs" || { echo "  选区提交规则与预期不符"; exit 1; }
-echo "  ✓ 13 条选区提交用例通过（核心：连续两次一致才算数）"
+echo "  ✓ 20 条选区提交用例通过（核心：两次一致才算数，且两次要隔得够开）"
 
 # ── 7) 选区读数的三值判定 ─────────────────────────────────────────
 # 这块反复改了五轮，根子始终是同一个误判：把「读不出选区」当成「用户取消了选中」。

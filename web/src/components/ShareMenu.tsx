@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api, type DocDetail } from '../api'
 import { isStandalone, triggerDownload } from '../download'
 import { buildSelfContainedHTML, MAX_EXPORT_BYTES, type ExportFlavour } from '../exportDoc'
@@ -40,6 +40,10 @@ export default function ShareMenu({
   const [busy, setBusy] = useState('')
   const [note, setNote] = useState('')
   const [urlCopied, setUrlCopied] = useState(false)
+  // 菜单是 fixed 定位（横向贴视口右缘，才不会被窄屏切掉），
+  // 所以纵向位置得自己量：贴在「分享」按钮下面。
+  const [menuTop, setMenuTop] = useState(0)
+  const btnRef = useRef<HTMLButtonElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   // 「加到主屏」之后 Safari 不实现 window.print()，点了没有任何反应。
   // 与其留一个死按钮，不如在这个模式下直接不显示——PDF 由「导出 PDF」产出。
@@ -56,6 +60,23 @@ export default function ShareMenu({
 
   useEffect(() => {
     if (!open) setUrlCopied(false)
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const r = btnRef.current?.getBoundingClientRect()
+      if (r) setMenuTop(r.bottom + 6)
+    }
+    place()
+    // 菜单是 fixed 的，页面一滚它就会脱离按钮。与其让它飘着，不如收起来。
+    const onScroll = () => setOpen(false)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', place)
+    }
   }, [open])
 
   const runExport = async (flavour: ExportFlavour) => {
@@ -95,12 +116,16 @@ export default function ShareMenu({
 
   return (
     <div className="share-wrap" ref={boxRef}>
-      <button className={`text-btn${open ? ' on' : ''}`} onClick={() => setOpen(!open)}>
+      <button
+        ref={btnRef}
+        className={`text-btn${open ? ' on' : ''}`}
+        onClick={() => setOpen(!open)}
+      >
         分享
       </button>
 
       {open && (
-        <div className="share-menu">
+        <div className="share-menu" style={{ top: menuTop }}>
           <button
             className="share-item"
             disabled={busy !== ''}

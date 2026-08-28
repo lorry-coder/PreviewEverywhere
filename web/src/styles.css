@@ -1439,12 +1439,21 @@ html[data-theme='dark'] .ann-rect,
   position: relative;
 }
 
+/* 菜单贴视口右缘，而不是贴「分享」按钮的右缘。
+
+   贴按钮的话，能用的横向空间是「按钮右缘到屏幕左边」这一段，而按钮本身
+   离右边不远——菜单一旦比这段宽，左边就被切掉。实测 390px 的视口上少了
+   18px，正好吞掉第一个字。这个约束用 CSS 表达不了（max-width 管的是总宽，
+   管不了锚点左边还剩多少），所以改成贴视口右缘：横向从此与按钮位置无关，
+   max-width 就真的够用了。纵向仍然跟着按钮走，由 JS 量一下给出。 */
 .share-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
+  position: fixed;
+  right: 8px;
   z-index: 40;
-  min-width: min(78vw, 260px);
+  /* 用显式宽度而不是 min/max 组合：
+     min-width 会压过 max-width（320px 的屏上因此又切掉 8px），
+     而不设宽度时长文本会把菜单撑到几乎满屏。一个 width 两头都管住。 */
+  width: min(calc(100vw - 16px), 300px);
   background: var(--surface);
   border: 1px solid var(--border-2);
   border-radius: 6px;
@@ -1523,9 +1532,9 @@ html[data-theme='dark'] .ann-rect,
   text-overflow: clip;
 }
 
-/* 主屏 App 下菜单里多了一段说明和一行地址，窄一点就摆不下了。 */
+/* 主屏 App 下多了一段说明和一行地址，需要宽一点，但同样要夹在视口内。 */
 .share-menu:has(.share-safari) {
-  min-width: min(92vw, 340px);
+  width: min(calc(100vw - 16px), 340px);
 }
 
 .share-note {

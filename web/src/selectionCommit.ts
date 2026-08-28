@@ -34,6 +34,24 @@ export interface SelAnchor {
 /** 两次读数之间的确认间隔。 */
 export const CONFIRM_MS = 180
 
+/** 事件到来后隔多久去读一次选区。让浏览器先把选区结算完。 */
+export const EVENT_DELAY = 10
+
+/**
+ * 一个事件到来时，下一次读取该等多久。
+ *
+ * 确认周期进行中时**不许缩短**——这是踩出来的：原先每个事件都把待执行的
+ * 检查重置成 10ms，而手指抬起的瞬间 iOS 会连发好几个事件（pointerup、
+ * selectionchange…）。于是本该间隔 180ms 的两次读数变成了 10ms 内接连发生，
+ * 确认窗口塌缩为零，一个瞬时的「读不到选区」就被当成结论提交，
+ * 气泡在手指刚离开屏幕时就消失了。
+ *
+ * 确认机制的价值全在「两次读数之间隔得够开」，这一条不能被事件冲掉。
+ */
+export function eventDelay(rechecks: number): number {
+  return rechecks > 0 ? CONFIRM_MS : EVENT_DELAY
+}
+
 /**
  * 连续确认的次数上限。
  * 正常情况下一两次就稳定了；设上限是为了万一读数持续抖动时不至于
