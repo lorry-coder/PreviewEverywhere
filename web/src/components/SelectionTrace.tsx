@@ -1,99 +1,52 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { copyText } from '../clipboard'
-
-interface Entry {
-  t: number
-  ev: string
-  ranges: number
-  /** anchorNode 是否存在。iOS 点按钮时发的那种「什么也没说明」的事件，这里是 false。 */
-  anchor: boolean
-  collapsed: boolean
-  len: number
-  bubble: boolean
-}
+import {
+  setTraceEnabled,
+  subscribeTrace,
+  traceAsText,
+  traceEnabled,
+  traceLog,
+  type TraceEntry,
+} from '../selectionTrace'
 
 /**
- * 选区事件记录器。
+ * 选区事件记录器的界面。
  *
- * 存在的理由：划词气泡这块已经来回改了四轮，每一轮都是在猜 iOS 到底发了
- * 什么事件、getSelection() 在哪一刻读得到东西。开发机上复现不了，
+ * 存在的理由：划词这块来回改了太多轮，每一轮都是在猜 iOS 到底发了什么事件、
+ * 哪一刻读得到选区、气泡挂上去之后选中标记还在不在。开发机上复现不了，
  * 于是只能靠「你那边看到什么」来回话，猜错一次就是一轮返工。
  *
- * 这一栏把真实的事件序列摆出来：谁先谁后、每一刻选区是什么状态、
- * 气泡在不在。长按下面那段示例文字，然后把记录念出来就行。
+ * 记录是**全局**的：在这里打开开关，去阅读页长按，再回来看。
+ * 只在这一页录的话，录到的是一个没有气泡的环境，
+ * 恰好把最该观察的东西排除在外。
  */
-function asText(log: Entry[]): string {
-  return log
-    .map(
-      (e) =>
-        `${e.t}ms ${e.ev} ranges=${e.ranges} anchor=${e.anchor} collapsed=${e.collapsed} len=${e.len} bubble=${e.bubble}`,
-    )
-    .join('\n')
-}
-
 export default function SelectionTrace() {
-  const [log, setLog] = useState<Entry[]>([])
-  const [on, setOn] = useState(false)
-  // 点「复制」后摊出来的全文，以及自动复制成没成。
-  //
-  // 为什么无论成败都摊出来：局域网是 http，navigator.clipboard 根本不存在；
-  // 退回 execCommand 之后，iOS 上它返回 true 也可能压根没放进剪贴板。
-  // 这个布尔值靠不住，而这一栏的唯一用途就是把文本从手机上弄出来——
-  // 与其赌它，不如永远把原文摆在那儿，让人能选、能截图。
+  const [on, setOn] = useState(traceEnabled)
+  const [log, setLog] = useState<TraceEntry[]>(traceLog)
   const [manual, setManual] = useState('')
   const [copied, setCopied] = useState(false)
-  const startRef = useRef(0)
 
-  useEffect(() => {
-    if (!on) return
-    startRef.current = Date.now()
-    setLog([])
-
-    const push = (ev: string) => {
-      const s = window.getSelection()
-      setLog((prev) =>
-        [
-          ...prev,
-          {
-            t: Date.now() - startRef.current,
-            ev,
-            ranges: s?.rangeCount ?? 0,
-            anchor: !!s?.anchorNode,
-            collapsed: s?.isCollapsed ?? true,
-            len: (s?.toString() ?? '').length,
-            bubble: !!document.querySelector('.sel-popup'),
-          },
-        ].slice(-40),
-      )
-    }
-
-    const on1 = () => push('selectionchange')
-    const on2 = () => push('touchstart')
-    const on3 = () => push('touchend')
-    const on4 = () => push('touchcancel')
-    document.addEventListener('selectionchange', on1)
-    document.addEventListener('touchstart', on2)
-    document.addEventListener('touchend', on3)
-    document.addEventListener('touchcancel', on4)
-    return () => {
-      document.removeEventListener('selectionchange', on1)
-      document.removeEventListener('touchstart', on2)
-      document.removeEventListener('touchend', on3)
-      document.removeEventListener('touchcancel', on4)
-    }
-  }, [on])
+  useEffect(() => subscribeTrace(() => setLog([...traceLog()])), [])
 
   return (
     <div className="diag-trace">
       <div className="actionable-bar">
-        <button className="text-btn" onClick={() => setOn(!on)}>
+        <button
+          className={`text-btn${on ? ' on' : ''}`}
+          onClick={() => {
+            const next = !on
+            setTraceEnabled(next)
+            setOn(next)
+            setManual('')
+          }}
+        >
           {on ? '停止记录' : '开始记录选区事件'}
         </button>
-        {on && log.length > 0 && (
+        {log.length > 0 && (
           <button
             className="text-btn"
             onClick={async () => {
-              const text = asText(log)
+              const text = traceAsText()
               setCopied(await copyText(text))
               setManual(text)
             }}
@@ -102,23 +55,25 @@ export default function SelectionTrace() {
           </button>
         )}
         <span className="actionable-hint">
-          开始记录后，长按下面这段文字，再把记录发给我
+          {on
+            ? '已开始记录。现在去打开一篇文档，长按选中一段文字，再回来看。'
+            : '打开后去阅读页长按，记录会一直跟着你'}
         </span>
       </div>
 
       <p className="diag-sample">
-        长按这段文字来复现问题。这里的字要够多，长按之后 iOS 才会选中一个词
-        并弹出它自己的菜单，而这正是我们要看清楚的那一刻。
+        也可以直接长按这段文字试。但真正要看的是阅读页——那里才有划词气泡，
+        而「气泡和选中标记互相打架」正是要观察的东西。
       </p>
 
       {manual && (
         <div className="diag-manual">
           <p className="page-sub">
             {copied
-              ? '已尝试复制到剪贴板。iOS 上这一步不一定真的成功，所以原文也留在下面——长按全选，或者直接截图。'
+              ? '已尝试复制。iOS 上这一步不一定真的成功，所以原文也留在下面——长按全选，或者直接截图。'
               : '这个页面走的是 http，浏览器不提供剪贴板接口，自动复制没成。下面这段长按全选即可，或者直接截图。'}
           </p>
-          <textarea readOnly rows={8} value={manual} onFocus={(e) => e.target.select()} />
+          <textarea readOnly rows={10} value={manual} onFocus={(e) => e.target.select()} />
         </div>
       )}
 
@@ -126,20 +81,22 @@ export default function SelectionTrace() {
         <div className="diag-table">
           {log.length === 0 ? (
             <div className="diag-row">
-              <span className="diag-k">还没有事件。长按上面那段文字。</span>
+              <span className="diag-k">还没有事件。去阅读页长按一段文字。</span>
             </div>
           ) : (
             log.map((e, i) => (
-              // 无锚点的那种事件单独标出来：它是 iOS 特有的「什么也没说明」，
-              // 既不代表有选区，也不代表选区没了。
-              <div key={i} className={`diag-row${!e.anchor || e.collapsed ? ' warn' : ''}`}>
+              // 「无锚点」是 iOS 特有的那种什么也没说明的事件；
+              // 「正文 DOM 变动」若紧挨着选中标记消失，那就是元凶。
+              <div
+                key={i}
+                className={`diag-row${!e.anchor || e.ev.startsWith('正文') ? ' warn' : ''}`}
+              >
                 <span className="diag-k">
                   {e.t}ms · {e.ev}
                 </span>
                 <span className="diag-v">
-                  {e.anchor ? `选区${e.ranges}段` : '无锚点'}{' '}
-                  {e.collapsed ? '已折叠' : '有内容'} {e.len}字 气泡
-                  {e.bubble ? '在' : '无'}
+                  {e.anchor ? `选区${e.ranges}段` : '无锚点'} {e.collapsed ? '已折叠' : '有内容'}{' '}
+                  {e.len}字 气泡{e.bubble ? '在' : '无'}
                 </span>
               </div>
             ))

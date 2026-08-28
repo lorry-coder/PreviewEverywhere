@@ -13,6 +13,7 @@ import {
 import type { Selected } from './annotate'
 import AnnotationPanel from './components/AnnotationPanel'
 import StaleBanner from './components/StaleBanner'
+import { resumeTrace } from './selectionTrace'
 import Login from './components/Login'
 import SearchBox from './components/SearchBox'
 import Sidebar from './components/Sidebar'
@@ -95,6 +96,12 @@ export default function App() {
   // 挂载时拉过一次。服务端更新之后，这个标签里跑的还是旧 JS，
   // 界面上却没有任何迹象——切回来点按钮，得到的是「改了但没生效」的错觉。
   // 实测因此白白排查过一轮。重新可见时拉一次，旧前端提示条才有机会亮起来。
+  // 选区事件记录若还开着就接着记。它必须挂在整个应用上，
+  // 因为要观察的是阅读页里气泡与选中标记的互动，而不是自查页。
+  useEffect(() => {
+    resumeTrace()
+  }, [])
+
   useEffect(() => {
     if (auth !== 'in') return
     const onVisible = () => {

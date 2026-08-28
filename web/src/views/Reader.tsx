@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   api,
   AuthError,
@@ -98,6 +98,26 @@ export default function Reader(props: Props) {
   // 服务端渲染不了的东西在这里补：mermaid 图与 KaTeX 公式。
   // 它们都把原始源码用 display:none 留在 DOM 里，所以批注偏移不受影响。
   // 顺带做两件纯视觉的事：中西文加间隔、外链补 target。
+  // 正文内容由我们自己写进 DOM，不交给 React 的 dangerouslySetInnerHTML。
+  //
+  // 为什么：实测抓到过 React 用**完全相同的字符串**重设 .prose 的 innerHTML
+  // ——一次纯冗余的更新。桌面上看不出任何异常，但在 iOS 上，正文 DOM 一被
+  // 整体换掉，系统就会丢掉正在进行的选区。表现就是长按选中之后标记突然消失、
+  // 气泡随即也没了，而且时有时无（取决于那次重设发生在手势的哪一步）。
+  //
+  // 交给 React 管，就得赌它永远不做多余的更新；自己写，这件事就不可能发生。
+  // 顺带还修掉一个隐患：spaceCJK 和 renderRichContent 是直接改 DOM 的，
+  // React 一旦重设 innerHTML 就会把它们的成果抹掉，而依赖没变、effect 不会
+  // 重跑——中西文间距和图表会无声消失。
+  //
+  // 用 layout effect 而不是 effect：在浏览器绘制之前写完，避免闪一下空白。
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+    if (el && doc?.html != null && el.innerHTML !== doc.html) {
+      el.innerHTML = doc.html
+    }
+  }, [doc?.html])
+
   useEffect(() => {
     const el = bodyRef.current
     if (!el || !doc?.html) return
@@ -224,11 +244,9 @@ export default function Reader(props: Props) {
         />
       ) : (
         <div className="prose-wrap">
-          <div
-            className={`prose${onlyChanged ? ' only-changed' : ''}`}
-            ref={bodyRef}
-            dangerouslySetInnerHTML={{ __html: doc.html }}
-          />
+          {/* 正文容器刻意留空，内容由下面那个 layout effect 自己塞进去。
+              理由见那里——一句话：不能让 React 有机会重设它的 innerHTML。 */}
+          <div className={`prose${onlyChanged ? ' only-changed' : ''}`} ref={bodyRef} />
           <AnnotationLayer
             annotations={annotations}
             proseRef={bodyRef}

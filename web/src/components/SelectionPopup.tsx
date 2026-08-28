@@ -146,14 +146,21 @@ export default function SelectionPopup({
     // 用 pointerup 而不是 mouseup + touchend：一个事件同时覆盖鼠标与触摸，
     // 而且挂在 document 上——鼠标在正文之外松开（划到页边、划出容器）
     // 同样要算数，挂在 prose 上会漏掉这一类。
+    // pointerup / touchend 都听：iOS 长按选词时系统会接管手势，
+    // 之后未必还有 pointerup，touchend 是那条路上更可靠的收尾信号。
     document.addEventListener('pointerup', check)
-    document.addEventListener('pointercancel', check)
-    // 拖动选区把手时不产生 pointerup，selectionchange 才是那条路上的信号。
+    document.addEventListener('touchend', check)
+    // 刻意不听 pointercancel / touchcancel。
+    //
+    // 它们的含义是「系统把这个手势拿走了」——在 iOS 上，长按选词的中途就会
+    // 发这个。那是手势正在进行的时刻，不是结束的时刻。在那一刻去读选区，
+    // 读到的是半成品；更糟的是一旦据此提交，气泡就会在手势中途挂上 DOM。
+    // 收尾信号应当是 up/end，不是 cancel。
     document.addEventListener('selectionchange', check)
     return () => {
       window.clearTimeout(timerRef.current)
       document.removeEventListener('pointerup', check)
-      document.removeEventListener('pointercancel', check)
+      document.removeEventListener('touchend', check)
       document.removeEventListener('selectionchange', check)
     }
   }, [evaluate])
