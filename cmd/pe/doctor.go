@@ -374,7 +374,7 @@ func checkHook(c *checkCtx) checkResult {
 	if !c.fix {
 		return checkResult{Status: statusWarn, Detail: "没装",
 			Hint: "装上之后 agent 写的每个 .md / .html 都会自动进来，不用管目录：\n" +
-				"pe hook-install --write   （或 pe doctor --fix）"}
+				"pe agent install --write   （或 pe doctor --fix）"}
 	}
 	if err := cmdHookInstall([]string{"--write"}); err != nil {
 		return checkResult{Status: statusFail, Detail: "装不上", Hint: err.Error()}
