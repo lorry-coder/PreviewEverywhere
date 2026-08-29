@@ -279,7 +279,7 @@ check "过期/不存在的导出链接返回 404" "404" "${code:-404}"
 
 echo
 echo "▸ 使用手册：手册自称的命令都存在"
-for c in serve watch push hook-install hook-ingest mcp token version feedback; do
+for c in setup serve reload service client watch push hook-install hook-ingest mcp token version feedback; do
   "$PE" help | grep -q "  pe $c" && ok "pe $c" || bad "手册写了 pe $c，实际没有"
 done
 # 手册明确说「没有内置备份命令」，验证这条否定断言
@@ -288,6 +288,59 @@ if "$PE" help | grep -q "  pe backup"; then
 else
   ok "确实没有 pe backup（手册的说法属实）"
 fi
+
+echo
+echo "▸ 配置热生效：改完不用重启"
+# 这是第二期最核心的承诺。它坏了不会有任何报错——只会让人重新回到
+# 「我明明配了却没进来」，而那正是当初要修的东西。
+mkdir -p "$W/hot"
+"$PE" watch add "$W/hot" >/dev/null 2>&1
+printf -- '---\ntitle: 热加载测试\n---\n\n正文。\n' > "$W/hot/hot.md"
+found=0
+for _ in $(seq 1 15); do
+  sleep 1
+  curl -sf "${A[@]}" "$BASE/api/v1/docs" | grep -q "热加载测试" && { found=1; break; }
+done
+[ "$found" = 1 ] && ok "加一条监听规则，不重启就收到了新文档" \
+                 || bad "加了监听规则却收不到 —— 配置热生效坏了"
+
+# 反过来：规则删掉之后就不该再收
+"$PE" watch rm "$W/hot" >/dev/null 2>&1
+sleep 4
+printf -- '---\ntitle: 删掉规则之后写的\n---\n\n正文。\n' > "$W/hot/after.md"
+sleep 4
+curl -sf "${A[@]}" "$BASE/api/v1/docs" | grep -q "删掉规则之后写的" \
+  && bad "规则删了还在收 —— 只加不减等于没删" \
+  || ok "删掉监听规则，不重启就停止采集了"
+
+echo
+echo "▸ pe reload 能找到运行中的服务"
+"$PE" reload 2>&1 | grep -q "已通知" \
+  && ok "pe reload 通知到了运行中的服务" || bad "pe reload 找不到服务"
+
+echo
+echo "▸ pe client：写完会去连一次"
+# 一律先把输出收进变量再判断，不要 `pe … | grep -q`：
+# grep -q 一匹配就退出，会把还在写的 pe 打成 SIGPIPE，而本脚本开了 pipefail，
+# 于是「断言成立」反而被判成失败。这坑过一次。
+"$PE" client set --endpoint "$BASE" --token "$TOKEN" >/dev/null 2>&1 \
+  && ok "pe client set 存下了能用的配置" || bad "pe client set 失败"
+
+out=$("$PE" client show 2>&1)
+case "$out" in *"$BASE"*) ok "pe client show 报出配置的地址";; *) bad "pe client show 没报出地址";; esac
+case "$out" in *"$TOKEN"*) bad "pe client show 把口令原文打出来了";; *) ok "pe client show 默认遮住口令";; esac
+
+out=$("$PE" client show --reveal 2>&1)
+case "$out" in *"$TOKEN"*) ok "pe client show --reveal 才给出原文";; *) bad "--reveal 也没给出原文";; esac
+
+# 先存一份坏的（--no-verify 才存得进去），再存回好的，确认验证真的在跑
+"$PE" client set --endpoint "http://127.0.0.1:1" --token bad --no-verify >/dev/null 2>&1
+out=$("$PE" client set --endpoint "$BASE" --token "$TOKEN" 2>&1)
+case "$out" in *"连上了"*) ok "配置正确时报「连上了」";; *) bad "验证没生效：$out";; esac
+
+# 反过来：连不上时必须拦住，而不是默默存一份用不了的配置
+out=$("$PE" client set --endpoint "http://127.0.0.1:1" --token bad 2>&1 </dev/null || true)
+case "$out" in *"连不上"*) ok "连不上时明确报错，且不默默保存";; *) bad "连不上却没报错：$out";; esac
 
 echo
 echo "════════════════════════════════════════"

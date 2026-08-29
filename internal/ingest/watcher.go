@@ -68,7 +68,7 @@ func watchBudget() int {
 
 type Watcher struct {
 	pipe *Pipeline
-	cfg  *config.Config
+	cfg  *config.Live
 	fsw  *fsnotify.Watcher
 
 	// budget 是本次运行允许监听的目录数上限，按系统实际配额算出来。
@@ -84,6 +84,11 @@ type Watcher struct {
 	// skipped 记下几个因为超预算而没监听的目录。
 	// 光说「超上限了」没用，得让人看见到底是什么在吃预算。
 	skipped []string
+
+	// nudge 是「配置换了，立刻重算监听集合」的信号。
+	// 平时靠 30 秒的定时复扫就够，但人刚敲完 `pe source add` 之后
+	// 等半分钟才生效，感觉上和「没生效」没区别。
+	nudge chan struct{}
 }
 
 // Status 汇报监听健康度。inotify 句柄不足是 Linux 上最容易踩、
@@ -96,7 +101,7 @@ type Status struct {
 	Message  string   `json:"message,omitempty"`
 }
 
-func NewWatcher(p *Pipeline, cfg *config.Config) (*Watcher, error) {
+func NewWatcher(p *Pipeline, cfg *config.Live) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -108,6 +113,7 @@ func NewWatcher(p *Pipeline, cfg *config.Config) (*Watcher, error) {
 		budget:  watchBudget(),
 		pending: map[string]*time.Timer{},
 		watched: map[string]bool{},
+		nudge:   make(chan struct{}, 1),
 	}, nil
 }
 
@@ -132,6 +138,8 @@ func (w *Watcher) Run(ctx context.Context) error {
 			return w.fsw.Close()
 		case <-rescan.C:
 			w.refreshRoots()
+		case <-w.nudge:
+			w.refreshRoots()
 		case ev, ok := <-w.fsw.Events:
 			if !ok {
 				return nil
@@ -143,6 +151,17 @@ func (w *Watcher) Run(ctx context.Context) error {
 			}
 			log.Printf("监听出错: %v", err)
 		}
+	}
+}
+
+// Reload 让监听器立刻按最新配置重算一遍监听集合。
+// 配置换了之后调它，不必等定时复扫。
+//
+// 缓冲是 1 且满了就丢：重算本来就是幂等的，排队等第二次没有意义。
+func (w *Watcher) Reload() {
+	select {
+	case w.nudge <- struct{}{}:
+	default:
 	}
 }
 
@@ -170,7 +189,7 @@ func (w *Watcher) Status() Status {
 
 func (w *Watcher) resolveRoots() []watchRoot {
 	out := []watchRoot{}
-	for _, wc := range w.cfg.Watch {
+	for _, wc := range w.cfg.Get().Watch {
 		pattern := expandHome(wc.Path)
 		matches, _ := filepath.Glob(pattern)
 		if len(matches) == 0 && pathExists(pattern) {
@@ -261,7 +280,7 @@ func (w *Watcher) reportWatchHealth() {
 }
 
 func (w *Watcher) isIgnoredDir(name string) bool {
-	if config.MatchIgnore(name, w.cfg.Ignore) {
+	if config.MatchIgnore(name, w.cfg.Get().Ignore) {
 		return true
 	}
 	// 隐藏目录默认不进，但显式配成监听根的除外（上面的 p != root 已经保证了这点）。
@@ -272,7 +291,7 @@ func (w *Watcher) isIgnoredDir(name string) bool {
 // 供 `pe watch add` 当场给出量级。必须复用同一套判断——
 // 提示里的数字和实际监听数对不上，比不给数字更糟。
 func CountWatchDirs(root string, ignore []string) (int, bool) {
-	w := &Watcher{cfg: &config.Config{Ignore: ignore}}
+	w := &Watcher{cfg: config.Static(&config.Config{Ignore: ignore})}
 	const limit = 200000
 	n := 0
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -406,6 +425,10 @@ func matchesInclude(name string, patterns []string) bool {
 // 症状是「文档明明写进去了却始终不出现」，且没有任何报错。
 func (w *Watcher) refreshRoots() {
 	resolved := w.resolveRoots()
+	live := make(map[string]bool, len(resolved))
+	for _, r := range resolved {
+		live[r.Path] = true
+	}
 
 	w.mu.Lock()
 	known := make(map[string]bool, len(w.roots))
@@ -416,11 +439,30 @@ func (w *Watcher) refreshRoots() {
 	for _, r := range resolved {
 		if !known[r.Path] {
 			added = append(added, r)
-			w.roots = append(w.roots, r)
 		}
+	}
+	// 规则被删掉（`pe source rm`）或者目录本身没了，对应的根要退出监听。
+	// 原先这里只加不减，于是删掉一条规则要重启服务才算数——
+	// 而「删了却还在收」和「加了却没收」一样让人以为程序坏了。
+	var dropped []string
+	for _, r := range w.roots {
+		if !live[r.Path] {
+			dropped = append(dropped, r.Path)
+		}
+	}
+	if len(dropped) > 0 {
+		w.roots = resolved
+	} else {
+		w.roots = append(w.roots, added...)
 	}
 	w.mu.Unlock()
 
+	if len(dropped) > 0 {
+		for _, path := range dropped {
+			log.Printf("不再监听: %s", path)
+		}
+		w.unwatchOrphans()
+	}
 	if len(added) == 0 {
 		return
 	}
@@ -429,6 +471,42 @@ func (w *Watcher) refreshRoots() {
 		w.addTree(r.Path)
 	}
 	w.scanRoots(added)
+}
+
+// unwatchOrphans 撤掉那些已经不属于任何一条规则的目录。
+//
+// 判据是「还有没有某个根是它的前缀」，而不是「它属于刚被删的那个根」——
+// 两条规则可能重叠（同时监听 ~/Code 和 ~/Code/proj/docs），
+// 按后者判会把仍然该监听的目录一起撤掉。
+func (w *Watcher) unwatchOrphans() {
+	w.mu.Lock()
+	roots := append([]watchRoot(nil), w.roots...)
+	var orphans []string
+	for dir := range w.watched {
+		covered := false
+		for _, r := range roots {
+			if rel, err := filepath.Rel(r.Path, dir); err == nil && !strings.HasPrefix(rel, "..") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			orphans = append(orphans, dir)
+		}
+	}
+	for _, dir := range orphans {
+		delete(w.watched, dir)
+	}
+	// 超预算的记录一起清掉：撤掉一批目录之后，之前「放不下」的结论就不成立了。
+	if len(orphans) > 0 {
+		w.truncated = false
+		w.skipped = nil
+	}
+	w.mu.Unlock()
+
+	for _, dir := range orphans {
+		w.fsw.Remove(dir) //nolint:errcheck // 目录可能已经没了，撤不掉也无所谓
+	}
 }
 
 // scanRoots 把给定根目录下已有的文档补齐。内容没变的文件会在管线的

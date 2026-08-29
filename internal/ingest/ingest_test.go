@@ -17,7 +17,7 @@ func newPipeline(t *testing.T) (*Pipeline, *store.Store) {
 		t.Fatalf("打开 store 失败: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	cfg := &config.Config{Ignore: config.DefaultIgnore}
+	cfg := config.Static(&config.Config{Ignore: config.DefaultIgnore})
 	return New(st, cfg), st
 }
 

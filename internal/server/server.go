@@ -18,7 +18,7 @@ import (
 
 type Server struct {
 	st    *store.Store
-	cfg   *config.Config
+	cfg   *config.Live
 	pipe  *ingest.Pipeline
 	watch *ingest.Watcher // 可能为 nil（纯推送模式）
 	hub   *hub
@@ -30,7 +30,7 @@ type Server struct {
 	stage *staging
 }
 
-func New(st *store.Store, cfg *config.Config, pipe *ingest.Pipeline, watch *ingest.Watcher) *Server {
+func New(st *store.Store, cfg *config.Live, pipe *ingest.Pipeline, watch *ingest.Watcher) *Server {
 	s := &Server{st: st, cfg: cfg, pipe: pipe, watch: watch, hub: newHub(), stage: newStaging()}
 	if dist, err := fs.Sub(web.Dist, "dist"); err == nil {
 		s.build = frontendBuild(dist)

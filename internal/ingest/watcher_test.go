@@ -34,7 +34,7 @@ func TestBuildTreeDetectedByMarker(t *testing.T) {
 // 忽略列表要支持通配符，否则 cmake-build-debug / build-arm64 这类
 // 名字千变万化的目录永远列不全。
 func TestIgnoreSupportsGlob(t *testing.T) {
-	w := &Watcher{cfg: &config.Config{Ignore: []string{"node_modules", "cmake-build-*"}}}
+	w := &Watcher{cfg: config.Static(&config.Config{Ignore: []string{"node_modules", "cmake-build-*"}})}
 	cases := map[string]bool{
 		"node_modules":        true,
 		"cmake-build-debug":   true,

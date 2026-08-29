@@ -55,11 +55,17 @@ func cmdServe(args []string) error {
 		}
 	}
 
-	pipe := ingest.New(st, cfg)
-	watcher, err := ingest.NewWatcher(pipe, cfg)
+	// 配置不再被任何人长期持有：谁要读都从这份快照里取当下那一份。
+	// 于是 `pe source add` / `pe token` 改完配置，运行中的服务能当场跟上，
+	// 不必重启——见 config.Live 里的说明。
+	live := config.NewLive(*dataDir, cfg)
+
+	pipe := ingest.New(st, live)
+	watcher, err := ingest.NewWatcher(pipe, live)
 	if err != nil {
 		return fmt.Errorf("初始化文件监听失败: %w", err)
 	}
+	live.OnReload(func(*config.Config) { watcher.Reload() })
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -69,7 +75,9 @@ func cmdServe(args []string) error {
 		}
 	}()
 
-	api := server.New(st, cfg, pipe, watcher)
+	go watchConfig(ctx, live)
+
+	api := server.New(st, live, pipe, watcher)
 	api.SetDataDir(*dataDir)
 	srv := &http.Server{
 		Addr:    cfg.Bind,
@@ -77,6 +85,12 @@ func cmdServe(args []string) error {
 		// SSE 是长连接，写超时必须留空，否则连接会被定期掐断。
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// 记一份运行状态，`pe status` / `pe reload` 靠它找到这个进程。
+	if err := writeRuntime(*dataDir, cfg.Bind); err != nil {
+		log.Printf("写运行状态失败（不影响服务）: %v", err)
+	}
+	defer removeRuntime(*dataDir)
 
 	printBanner(cfg, freshToken)
 
@@ -106,6 +120,52 @@ func cmdServe(args []string) error {
 			log.Println("有连接未在期限内关闭，已强制断开。")
 		}
 		return nil
+	}
+}
+
+// configPollInterval 是 pe.toml 的轮询间隔。
+//
+// 两秒是照着人的节奏定的：你在另一个终端敲完 `pe source add`，
+// 抬眼看服务日志时它已经生效了。更短没有意义，更长就会让人怀疑没生效。
+const configPollInterval = 2 * time.Second
+
+// watchConfig 让配置改动自动生效，同时也接 SIGHUP。
+//
+// 两条路都留着，各有各的场景：
+//
+//	自动轮询  你在另一个终端敲 `pe source add`，不必再想起还要通知谁。
+//	SIGHUP    脚本里改完配置要确定它已经生效（`pe reload` 会等一下）。
+//
+// 轮询看的是 mtime + size 而不是内容：改这个文件的是另一个进程，
+// 而它是截断重写、不是原子换名，那种写法的 fsnotify 事件序列各家不一致。
+func watchConfig(ctx context.Context, live *config.Live) {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, reloadSignals()...)
+	defer signal.Stop(hup)
+
+	tick := time.NewTicker(configPollInterval)
+	defer tick.Stop()
+
+	reload := func(why string) {
+		next, err := live.Reload()
+		if err != nil {
+			log.Printf("重读配置失败，仍用旧的: %v", err)
+			return
+		}
+		log.Printf("%s：监听规则 %d 条，忽略规则 %d 条。", why, len(next.Watch), len(next.Ignore))
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-hup:
+			reload("收到 SIGHUP，已重读配置")
+		case <-tick.C:
+			if live.Changed() {
+				reload("pe.toml 有改动，已重读")
+			}
+		}
 	}
 }
 

@@ -35,8 +35,16 @@ func main() {
 
 	var err error
 	switch os.Args[1] {
+	case "setup":
+		err = cmdSetup(os.Args[2:])
 	case "serve":
 		err = cmdServe(os.Args[2:])
+	case "reload":
+		err = cmdReload(os.Args[2:])
+	case "service":
+		err = cmdService(os.Args[2:])
+	case "client":
+		err = cmdClient(os.Args[2:])
 	case "push":
 		err = cmdPush(os.Args[2:])
 	case "watch":
@@ -81,8 +89,23 @@ func usage() {
 	fmt.Print(`PreviewEverywhere — 把 agent 产出的文档变成手机上读得完的东西
 
 用法:
+  pe setup [--dir <目录>] [--yes]
+        首次配置。问三个问题（盯哪儿、要不要开机自启、要不要接进 agent），
+        剩下的自己做完，末尾打印二维码。重复跑是安全的。
+
   pe serve [--bind 0.0.0.0:8080] [--data <目录>]
-        启动服务。首次启动会生成访问口令并打印二维码，手机扫一次即可。
+        直接启动服务（前台）。改了配置不用重启，它自己会重读。
+
+  pe reload
+        让运行中的服务立刻重读配置。平时不需要——改动最多两秒自动生效。
+
+  pe service install|uninstall|start|stop|restart|status|logs
+        装成开机自启的用户服务（Linux 走 systemd --user，macOS 走 launchd），
+        并顺手开启 linger，免得你一退出登录服务就停了。
+
+  pe client set|show
+        管客户端配置（~/.config/pe/config.toml），pe push / hook / MCP 用它。
+        set 写完会去连一次，当场告诉你通没通。
 
   pe watch add <目录> [--project 名称] [--include '*.md']
   pe watch list

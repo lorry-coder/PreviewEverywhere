@@ -84,7 +84,7 @@ type Event struct {
 
 type Pipeline struct {
 	st  *store.Store
-	cfg *config.Config
+	cfg *config.Live
 	// cdnClient 用来抓取 agent HTML 引用的 CDN 库。提出来是为了能在测试里
 	// 换成信任自签证书的客户端——生产路径要求 https，测试服务器也就必须是 TLS。
 	cdnClient *http.Client
@@ -93,7 +93,7 @@ type Pipeline struct {
 	handlers []func(Event)
 }
 
-func New(st *store.Store, cfg *config.Config) *Pipeline {
+func New(st *store.Store, cfg *config.Live) *Pipeline {
 	return &Pipeline{st: st, cfg: cfg, cdnClient: &http.Client{Timeout: cdnTimeout}}
 }
 
@@ -230,7 +230,7 @@ func (p *Pipeline) Ingest(src Source) (res store.SaveResult, err error) {
 	// 原样模式的 HTML 会被送进 sandbox iframe，那里发不出带 Cookie 的请求，
 	// 也可能根本没网。把外部依赖内联进来，存成另一份专供渲染的 blob。
 	serveBlob := ""
-	if kind == "html" && result.RenderMode == "raw" && p.cfg.ShouldLocalizeCDN() {
+	if kind == "html" && result.RenderMode == "raw" && p.cfg.Get().ShouldLocalizeCDN() {
 		if localized, n := p.localizeHTML(raw, baseDir, ref.Root); n > 0 {
 			if sha, err := p.st.PutBlob(localized, rawMime); err == nil {
 				serveBlob = sha

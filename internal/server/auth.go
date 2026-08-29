@@ -15,12 +15,12 @@ const sessionCookie = "pe_session"
 // 和 annotation 的归属拆成关联表之后再说。
 
 func (s *Server) authed(r *http.Request) bool {
-	if c, err := r.Cookie(sessionCookie); err == nil && s.cfg.CheckToken(c.Value) {
+	if c, err := r.Cookie(sessionCookie); err == nil && s.cfg.Get().CheckToken(c.Value) {
 		return true
 	}
 	// 命令行与脚本走 Bearer，省得先换 Cookie。
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return s.cfg.CheckToken(strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+		return s.cfg.Get().CheckToken(strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
 	}
 	return false
 }
@@ -46,7 +46,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "请求格式不对")
 		return
 	}
-	if !s.cfg.CheckToken(strings.TrimSpace(body.Token)) {
+	if !s.cfg.Get().CheckToken(strings.TrimSpace(body.Token)) {
 		writeError(w, http.StatusUnauthorized, "口令不对。用 `pe token` 重新生成一个。")
 		return
 	}

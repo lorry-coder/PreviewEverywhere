@@ -67,7 +67,9 @@ func watchAdd(args []string) error {
 	}
 
 	fmt.Printf("已添加监听: %s\n", target)
-	fmt.Println("重启 pe serve 后生效。")
+	// 运行中的服务会自己发现这次改动（它每两秒看一眼 pe.toml），
+	// 所以这里不再让人去重启。要立刻确认生效就 `pe reload`。
+	fmt.Println("运行中的服务几秒内自动生效，不用重启。")
 	// 与其笼统地劝「别监听仓库根」，不如当场数一遍再说。
 	// 现代机器的 inotify 配额通常远比想象中宽裕，
 	// 真正该拦的是那种把构建产物也算进来的目录。
@@ -186,9 +188,10 @@ func cmdToken(args []string) error {
 		qrterminal.L, os.Stdout)
 	fmt.Println()
 	fmt.Printf("  口令: %s\n\n", token)
-	// 服务端启动时把口令哈希读进了内存，不会重读配置文件。
-	// 不说清楚的话，人会拿着新口令怎么试都是 401。
-	fmt.Println("  注意: pe serve 若正在运行，需要重启后新口令才生效（旧 Cookie 同时失效）。")
+	// 换口令是一件有连带后果的事，所以后果要写在紧跟着的地方，
+	// 而不是让人去手册里找。
+	fmt.Println("  运行中的服务几秒内自动切到新口令，不用重启。")
+	fmt.Println("  所有设备上的旧登录同时失效，都要重新扫这个码。")
 	return nil
 }
 
