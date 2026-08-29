@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -19,6 +20,10 @@ import (
 
 // 这三个由构建时用 -ldflags -X 注入。默认值是给 `go build` 直接跑的开发构建用的——
 // 它说的是实话：这个二进制不是从某个 tag 发出来的。
+// errSilent 表示「以失败退出，但话已经说完了」。pe doctor 查出问题时就是这样：
+// 该说的都在报告里写着，再补一句「错误: ...」只会让人以为是程序自己出了错。
+var errSilent = errors.New("有检查项没通过")
+
 var (
 	version   = "dev"
 	commit    = "unknown"
@@ -41,6 +46,10 @@ func main() {
 		err = cmdServe(os.Args[2:])
 	case "reload":
 		err = cmdReload(os.Args[2:])
+	case "status":
+		err = cmdStatus(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "service":
 		err = cmdService(os.Args[2:])
 	case "client":
@@ -69,6 +78,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// errSilent 的意思是「以失败退出，但话已经说完了」。
+	// pe doctor 查出问题时就是这样：该说的都在报告里写着了，
+	// 再补一句「错误: ...」只会让人以为是程序自己出了错。
+	if errors.Is(err, errSilent) {
+		os.Exit(1)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "错误:", err)
 		os.Exit(1)
@@ -102,6 +117,14 @@ func usage() {
   pe service install|uninstall|start|stop|restart|status|logs
         装成开机自启的用户服务（Linux 走 systemd --user，macOS 走 launchd），
         并顺手开启 linger，免得你一退出登录服务就停了。
+
+  pe status [--json]
+        服务在不在、盯着什么、收了多少、客户端配好没。
+        直接读库，所以服务没跑时也答得上来。
+
+  pe doctor [--fix] [--list] [--run 名字,…] [--json]
+        自检。端口、inotify 预算、监听目录、客户端配置、hook、时区、
+        孤儿 blob、二进制里有没有前端——能自动修的加 --fix 就修了。
 
   pe client set|show
         管客户端配置（~/.config/pe/config.toml），pe push / hook / MCP 用它。

@@ -141,6 +141,19 @@ func (s *Server) serveFrontend() http.HandlerFunc {
 // 它就是这个二进制携带的前端版本号：文件名带内容哈希，前端一变它就变。
 // 有这个才能回答「我手机上看到的到底是不是最新的」——这个问题问过两次，
 // 两次都只能靠猜，因为版本号在任何地方都不可见。
+// EmbeddedBuild 报出这个二进制里嵌着的前端主脚本名，空串表示没嵌进去。
+//
+// `pe doctor` 用它确认构建是完整的：少了前端，服务照常启动、接口照常应答，
+// 只是网页一片空白——而这正是发布流水线最容易出的错
+// （忘了在 go build 之前跑 npm build）。
+func EmbeddedBuild() string {
+	dist, err := fs.Sub(web.Dist, "dist")
+	if err != nil {
+		return ""
+	}
+	return frontendBuild(dist)
+}
+
 func frontendBuild(dist fs.FS) string {
 	data, err := fs.ReadFile(dist, "index.html")
 	if err != nil {

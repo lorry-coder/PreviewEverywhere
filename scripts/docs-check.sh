@@ -279,7 +279,7 @@ check "过期/不存在的导出链接返回 404" "404" "${code:-404}"
 
 echo
 echo "▸ 使用手册：手册自称的命令都存在"
-for c in setup serve reload service client watch push hook-install hook-ingest mcp token version feedback; do
+for c in setup serve reload status doctor service client watch push hook-install hook-ingest mcp token version feedback; do
   "$PE" help | grep -q "  pe $c" && ok "pe $c" || bad "手册写了 pe $c，实际没有"
 done
 # 手册明确说「没有内置备份命令」，验证这条否定断言
@@ -341,6 +341,51 @@ case "$out" in *"连上了"*) ok "配置正确时报「连上了」";; *) bad "�
 # 反过来：连不上时必须拦住，而不是默默存一份用不了的配置
 out=$("$PE" client set --endpoint "http://127.0.0.1:1" --token bad 2>&1 </dev/null || true)
 case "$out" in *"连不上"*) ok "连不上时明确报错，且不默默保存";; *) bad "连不上却没报错：$out";; esac
+
+echo
+echo "▸ pe status：服务在跑时和没跑时都要答得上来"
+out=$("$PE" status 2>&1)
+case "$out" in *"运行中"*) ok "status 认出服务在跑";; *) bad "status 没认出运行中的服务：$out";; esac
+case "$out" in *"$PORT"*) ok "status 报出端口";; *) bad "status 没报端口";; esac
+"$PE" status --json > "$W/status.json" 2>&1 \
+  && ok "status --json 是合法 JSON" || bad "status --json 失败"
+python3 -c "
+import json,sys
+d=json.load(open('$W/status.json'))
+assert d['running'] is True, '应当报运行中'
+assert d['reachable'] is True, '端口应当有应答'
+assert d['docs'] >= 1, '应当至少收到一篇'
+" && ok "status --json 的字段可用于脚本" || bad "status --json 字段不对"
+
+echo
+echo "▸ pe doctor：把排查表变成一条命令"
+out=$("$PE" doctor --list 2>&1)
+case "$out" in *"inotify"*) ok "doctor --list 列出检查项";; *) bad "doctor --list 没列出来";; esac
+"$PE" doctor --json > "$W/doctor.json" 2>&1 || true
+python3 -c "
+import json
+rs=json.load(open('$W/doctor.json'))
+names={r['name'] for r in rs}
+need={'数据目录','服务','端口','客户端配置','前端资源'}
+assert need <= names, '缺检查项: %s' % (need - names)
+assert all(r['status'] in ('ok','warn','fail') for r in rs), '状态值不合法'
+by={r['name']:r for r in rs}
+assert by['服务']['status']=='ok', '服务在跑却没报 ok'
+assert by['前端资源']['status']=='ok', '二进制里应当嵌着前端'
+" && ok "doctor --json 的结论可用于脚本" || bad "doctor --json 结论不对"
+
+# 孤儿 blob：造两个，--fix 必须清掉
+mkdir -p "$HOME/.local/share/pe/blobs/de/ad"
+head -c 1024 /dev/urandom > "$HOME/.local/share/pe/blobs/de/ad/deadbeefdoctor"
+out=$("$PE" doctor --run blobs 2>&1)
+case "$out" in *"没人引用"*) ok "doctor 发现孤儿 blob";; *) bad "doctor 没发现孤儿 blob：$out";; esac
+"$PE" doctor --run blobs --fix >/dev/null 2>&1
+[ -f "$HOME/.local/share/pe/blobs/de/ad/deadbeefdoctor" ] \
+  && bad "--fix 没清掉孤儿 blob" || ok "doctor --fix 清掉了孤儿 blob"
+
+# 查出 fail 时必须以非零退出，否则它在 CI 里等于没跑
+"$PE" doctor --data "$W/nonexistent-dir" --run 数据目录 >/dev/null 2>&1 \
+  && bad "数据目录不存在却以 0 退出" || ok "查出问题时以非零退出"
 
 echo
 echo "════════════════════════════════════════"
