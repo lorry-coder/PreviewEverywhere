@@ -28,28 +28,28 @@ printf -- '---\ntitle: 甲项目报告\ntags: [风险]\n---\n\n正文内容。\n
 cd "$REPO"
 
 echo
-echo "▸ README「快速开始」：watch add + serve"
-# 第 18 行的写法：不带引号，shell 展开 ~
-"$PE" watch add $HOME/Code/proj-a/docs >/dev/null 2>&1 \
-  && ok "watch add <目录>（不带引号）" || bad "watch add <目录> 失败"
+echo "▸ README「文档怎么进来」：source add + serve"
+# README 里的写法：不带引号，shell 展开 ~
+"$PE" source add $HOME/Code/proj-a/docs >/dev/null 2>&1 \
+  && ok "source add <目录>（不带引号）" || bad "source add <目录> 失败"
 
 echo
 echo "▸ README 的 glob 写法：'~/Code/*/docs'，引号不能省"
-"$PE" watch add '~/Code/*/docs' >/dev/null 2>&1 \
-  && ok "watch add '<glob>' 接受带引号的 ~ 与通配符" || bad "带引号的 glob 被拒"
-"$PE" watch list | grep -q '~/Code/\*/docs' \
+"$PE" source add '~/Code/*/docs' >/dev/null 2>&1 \
+  && ok "source add '<glob>' 接受带引号的 ~ 与通配符" || bad "带引号的 glob 被拒"
+"$PE" source list | grep -q '~/Code/\*/docs' \
   && ok "glob 原样存进配置（运行时才展开）" || bad "glob 没有原样保存"
 
 # README 讲了不加引号的两种后果，逐个验证
 mkdir -p "$HOME/Code/proj-b/docs"   # 让 glob 能匹配到两个目录
-if "$PE" watch add $HOME/Code/*/docs >/dev/null 2>&1; then
+if "$PE" source add $HOME/Code/*/docs >/dev/null 2>&1; then
   bad "不加引号匹配多个目录时应当报用法错误"
 else
   ok "不加引号且匹配多个目录 → 报用法错误"
 fi
 rmdir "$HOME/Code/proj-b/docs"      # 退回只匹配一个的情形
-if "$PE" watch add $HOME/Code/*/docs >/dev/null 2>&1; then
-  stored=$("$PE" watch list | grep -c 'proj-a/docs')
+if "$PE" source add $HOME/Code/*/docs >/dev/null 2>&1; then
+  stored=$("$PE" source list | grep -c 'proj-a/docs')
   [ "$stored" -ge 1 ] && ok "不加引号且只匹配一个 → 静默存成具体路径（README 已警告）" \
                       || bad "只匹配一个时的行为与 README 不符"
 else
@@ -108,7 +108,7 @@ check "没配口令时 hook 退出码仍为 0（不打断 agent）" "0" "$code"
 mv ~/.config/pe/config.toml.bak ~/.config/pe/config.toml
 
 echo
-echo "▸ README「hook-install」"
+echo "▸ README「pe agent install」"
 "$PE" hook-install 2>&1 | grep -q '"PostToolUse"' \
   && ok "hook-install 打印出 PostToolUse 片段" || bad "hook-install 输出不含 PostToolUse"
 "$PE" hook-install 2>&1 | grep -q 'settings.json' \
