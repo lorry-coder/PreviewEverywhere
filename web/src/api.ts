@@ -199,6 +199,16 @@ export const api = {
       body: JSON.stringify({ token }),
     }),
 
+  // 用一次性配对码换一个属于本设备的长期会话。
+  // 和 login 的区别在于服务端那边：login 用的是主口令，
+  // 而这里换到的是这台设备自己的凭据，换主口令时不会被牵连。
+  pair: (code: string) =>
+    request<{ ok: boolean; device: { id: number; name: string } }>('/api/v1/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }),
+
   status: () => request<Status>('/api/v1/status'),
   projects: () => request<Project[]>('/api/v1/projects'),
   tags: () => request<Tag[]>('/api/v1/tags'),

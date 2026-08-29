@@ -54,12 +54,25 @@ export default function App() {
     setRebinding(null)
   }, [])
 
-  // 扫码落地时地址是 http://host/#t=<token>：换成 Cookie 后立刻把它从
-  // 地址栏抹掉，免得口令留在历史记录里。
+  // 扫码落地有两种地址，都要在换到 Cookie 之后立刻从地址栏抹掉，
+  // 免得凭据留在历史记录里：
+  //
+  //   #p=<配对码>  `pe pair` 生成的一次性码，换到的是**本设备**的会话。
+  //                往后加设备都走这条路。
+  //   #t=<主口令>  老写法，`pe serve` 首次启动和 `pe token rotate` 打印的。
+  //                留着它是因为已有的二维码和别人的笔记里还是这个。
   useEffect(() => {
+    const paired = location.hash.match(/^#p=([0-9a-fA-F]+)$/)
     const match = location.hash.match(/^#t=([0-9a-fA-F]+)$/)
     const boot = async () => {
-      if (match) {
+      if (paired) {
+        try {
+          await api.pair(paired[1])
+        } catch {
+          /* 码过期或已被用过，就走正常登录流程 */
+        }
+        history.replaceState(null, '', location.pathname + location.search + '#/')
+      } else if (match) {
         try {
           await api.login(match[1])
         } catch {

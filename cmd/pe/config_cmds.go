@@ -11,6 +11,7 @@ import (
 
 	"previeweverywhere/internal/config"
 	"previeweverywhere/internal/ingest"
+	"previeweverywhere/internal/store"
 )
 
 func cmdWatch(args []string) error {
@@ -152,11 +153,22 @@ func watchRemove(args []string) error {
 	return nil
 }
 
+// cmdToken 换主口令。
+//
+// 有了 `pe pair` 之后，这条命令从「日常操作」降级成了应急操作：
+// 加一台设备用配对码，只有「我怀疑主口令泄露了」才需要换它。
+// 所以子命令名叫 rotate，让这层意思写在命令本身上而不是藏在文档里。
 func cmdToken(args []string) error {
+	// `pe token rotate` 与老写法 `pe token` 等价。老写法保留：
+	// 它出现在已有的文档和别人的笔记里，让它突然报错没有任何好处。
+	if len(args) > 0 && args[0] == "rotate" {
+		args = args[1:]
+	}
 	fs := flag.NewFlagSet("token", flag.ExitOnError)
 	dataDir := fs.String("data", config.DefaultDataDir(), "数据目录")
 	port := fs.String("port", "", "二维码里使用的端口，默认取配置")
-	if err := fs.Parse(args); err != nil {
+	revokeAll := fs.Bool("revoke-devices", false, "顺带撤掉所有配对过的设备")
+	if _, err := parseFlags(fs, args); err != nil {
 		return err
 	}
 
@@ -188,10 +200,34 @@ func cmdToken(args []string) error {
 		qrterminal.L, os.Stdout)
 	fmt.Println()
 	fmt.Printf("  口令: %s\n\n", token)
-	// 换口令是一件有连带后果的事，所以后果要写在紧跟着的地方，
-	// 而不是让人去手册里找。
+
+	// 换口令的连带后果要写在紧跟着的地方，而不是让人去手册里找。
+	// 而且现在的后果比以前小：配对过的设备各有各的会话，不受影响。
 	fmt.Println("  运行中的服务几秒内自动切到新口令，不用重启。")
-	fmt.Println("  所有设备上的旧登录同时失效，都要重新扫这个码。")
+	fmt.Println("  失效的是：pe push / hook / MCP（重配一下：pe client set），")
+	fmt.Println("  以及配对机制之前留下的旧浏览器登录。")
+
+	if *revokeAll {
+		st, err := store.Open(*dataDir)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		n, err := st.RevokeAllDevices()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  另外按你的要求撤掉了 %d 台配对过的设备。\n", n)
+		return nil
+	}
+
+	if st, err := store.Open(*dataDir); err == nil {
+		defer st.Close()
+		if devices, err := st.ListDevices(); err == nil && len(devices) > 0 {
+			fmt.Printf("  %d 台配对过的设备**不受影响**，照常能用。\n", len(devices))
+			fmt.Println("  真要一起清掉：pe token rotate --revoke-devices")
+		}
+	}
 	return nil
 }
 

@@ -279,7 +279,7 @@ check "过期/不存在的导出链接返回 404" "404" "${code:-404}"
 
 echo
 echo "▸ 使用手册：手册自称的命令都存在"
-for c in setup serve reload status doctor service client watch push hook-install hook-ingest mcp token version feedback; do
+for c in setup serve reload status doctor service client pair device watch push hook-install hook-ingest mcp token version feedback; do
   "$PE" help | grep -q "  pe $c" && ok "pe $c" || bad "手册写了 pe $c，实际没有"
 done
 # 手册明确说「没有内置备份命令」，验证这条否定断言
@@ -386,6 +386,46 @@ case "$out" in *"没人引用"*) ok "doctor 发现孤儿 blob";; *) bad "doctor 
 # 查出 fail 时必须以非零退出，否则它在 CI 里等于没跑
 "$PE" doctor --data "$W/nonexistent-dir" --run 数据目录 >/dev/null 2>&1 \
   && bad "数据目录不存在却以 0 退出" || ok "查出问题时以非零退出"
+
+echo
+echo "▸ pe pair：加设备不再牵连其它设备"
+# 这是第四期的全部意义。它坏了会退回到「想让手机也能看，全家重新扫码」。
+CODE=$("$PE" pair --print --name "自检设备" 2>&1 | grep -oP '#p=\K[0-9a-f]+')
+[ -n "$CODE" ] && ok "pe pair 生成了配对码" || bad "pe pair 没给出配对码"
+code=$(curl -s -o /dev/null -w '%{http_code}' -c "$W/dev.jar" \
+  -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}" "$BASE/api/v1/pair")
+check "配对码能换到会话" "200" "$code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$W/dev.jar" "$BASE/api/v1/status")
+check "换到的会话能访问" "200" "$code"
+
+# 一次性：同一个码不能再用
+code=$(curl -s -o /dev/null -w '%{http_code}' \
+  -H 'Content-Type: application/json' -d "{\"code\":\"$CODE\"}" "$BASE/api/v1/pair")
+check "同一个配对码不能用第二次" "401" "$code"
+
+out=$("$PE" device list 2>&1)
+case "$out" in *"自检设备"*) ok "pe device list 列出这台设备";; *) bad "device list 没列出来：$out";; esac
+
+# 核心断言：换主口令之后，配对过的设备照常能用
+NEWTOKEN=$("$PE" token rotate --port $PORT 2>&1 | grep -oP '口令:\s*\K[0-9a-f]+')
+sleep 3
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$W/dev.jar" "$BASE/api/v1/status")
+check "换主口令后设备仍然能用" "200" "$code"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/status")
+check "换主口令后旧主口令失效" "401" "$code"
+TOKEN=$NEWTOKEN
+A=(-H "Authorization: Bearer $TOKEN")
+
+# 设备会话是给浏览器的，不该能当机器凭据用
+DEVTOK=$(grep pe_session "$W/dev.jar" | awk '{print $7}')
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $DEVTOK" "$BASE/api/v1/status")
+check "设备会话不能当 Bearer 用" "401" "$code"
+
+# 撤掉之后立刻失效
+DEVID=$("$PE" device list --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+"$PE" device revoke "$DEVID" >/dev/null 2>&1
+code=$(curl -s -o /dev/null -w '%{http_code}' -b "$W/dev.jar" "$BASE/api/v1/status")
+check "撤掉之后设备立刻失效" "401" "$code"
 
 echo
 echo "════════════════════════════════════════"

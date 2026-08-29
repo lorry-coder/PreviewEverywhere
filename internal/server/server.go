@@ -58,6 +58,10 @@ func (s *Server) Handler() http.Handler {
 	// 未鉴权即可访问：拿口令换 Cookie 的入口。
 	mux.HandleFunc("POST /api/v1/session", s.handleSession)
 	mux.HandleFunc("POST /api/v1/logout", s.handleLogout)
+	// 配对不需要鉴权：配对码本身就是凭据。
+	mux.HandleFunc("POST /api/v1/pair", s.handlePair)
+	mux.HandleFunc("GET /api/v1/devices", s.requireAuth(s.handleListDevices))
+	mux.HandleFunc("DELETE /api/v1/devices/{id}", s.requireAuth(s.handleRevokeDevice))
 
 	mux.HandleFunc("GET /api/v1/status", s.requireAuth(s.handleStatus))
 	mux.HandleFunc("GET /api/v1/projects", s.requireAuth(s.handleProjects))

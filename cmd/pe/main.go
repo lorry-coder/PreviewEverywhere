@@ -60,6 +60,10 @@ func main() {
 		err = cmdWatch(os.Args[2:])
 	case "token":
 		err = cmdToken(os.Args[2:])
+	case "pair":
+		err = cmdPair(os.Args[2:])
+	case "device":
+		err = cmdDevice(os.Args[2:])
 	case "feedback":
 		err = cmdFeedback(os.Args[2:])
 	case "hook-ingest":
@@ -162,9 +166,18 @@ func usage() {
         省掉「你那边是什么环境」这一轮问答。
         数据目录下还有一份自动生成的 feedback.md，打开就能看。
 
-  pe token
-        重新生成访问口令并打印二维码。需重启 pe serve 才生效，
-        重启后旧的 Cookie 一并失效。
+  pe pair [--name 名字] [--minutes 10] [--print]
+        加一台设备：打印一个一次性配对码，扫完那台设备就有自己的登录了。
+        不出示主口令，也不影响其它设备。
+
+  pe device list [--json]
+  pe device revoke <编号> | --all
+        看有哪些设备登录着，单独撤掉其中一台。
+
+  pe token rotate [--revoke-devices]
+        换主口令。主口令是给机器用的（pe push / hook / MCP），
+        换掉它们要重配；配对过的设备不受影响。
+        有了 pe pair 之后，这条命令只在「怀疑口令泄露了」时才需要。
 
   pe version
 
