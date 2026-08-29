@@ -388,3 +388,185 @@ process.exit(bad ? 1 : 0)
 JS
 node "$TMP/read.mjs" || { echo "  选区读数判定与预期不符"; exit 1; }
 echo "  ✓ 8 条选区读数用例通过（核心：读不出 ≠ 没选中）"
+
+# ── 8) 选区边界点的换算（要一个真 DOM，所以借 headless Chrome）──────
+# 修过的 bug：DOM 里的边界点**不一定落在文本节点上**。
+# 「某文本节点第 0 个字符之前」有好几种等价写法，WebKit 长按选词时会规范化成
+# 元素写法 —— (strong, 0) 或 (p, 1)。原先只按节点相等去找，一个都对不上，
+# 于是返回块尾，产生两种都很难看出来的故障：
+#   起点对不上 → 读成「没有选中」，文字被标出来了却不弹气泡；
+#   终点对不上 → 气泡照弹，但存下的高亮一路吃到段落结尾。
+# 这两件事在开发机上用鼠标划词永远复现不了（鼠标不会规范化边界点），
+# 只有 iOS 长按加粗段落的第一个/最后一个词才现形，藏了很久。
+#
+# 这一节没有 Chrome 就跳过 —— 它是加分项，不该让没装浏览器的机器跑不了测试。
+CHROME=""
+for c in google-chrome google-chrome-stable chromium chromium-browser; do
+  command -v "$c" >/dev/null 2>&1 && { CHROME=$c; break; }
+done
+if [ -z "$CHROME" ]; then
+  echo "  · 跳过选区边界点用例（本机没有 Chrome/Chromium）"
+else
+mkdir -p "$TMP/dom"
+(cd web && npx tsc src/annotate.ts --outDir "$TMP/dom" --target es2022 --module es2022 \
+   --moduleResolution bundler --lib es2022,dom,dom.iterable --skipLibCheck)
+# tsc 原样保留 import 里的路径，浏览器解析不了没有扩展名的裸路径，补上。
+sed -i "s#from '\./\([a-zA-Z]*\)'#from './\1.js'#g" "$TMP/dom"/*.js
+
+cat > "$TMP/dom/case.html" <<'HTML'
+<div id="root">
+<p data-blk="p1">We have tested the library in <strong>Ubuntu 14.04</strong>, but it should be easy to compile in other platforms.</p>
+<p data-blk="p2">纯中文段落，用来验证两个汉字之间不插空格这条规则。</p>
+<p data-blk="p3">中文里夹着 <code>inline code</code> 和 <a href="#">一个链接</a> 的一段话。</p>
+<li data-blk="l1">列表项里的 <em><strong>嵌套强调</strong></em> 收尾</li>
+<p data-blk="p4"><strong>开头就是加粗</strong> 后面还有别的内容</p>
+<p data-blk="p5">末尾就是加粗 <strong>结束</strong></p>
+<h2 data-blk="h1">标题里的 <code>code</code> 片段</h2>
+</div>
+<script>
+window.onerror = (m, f, l, c, e) => {
+  const q = document.createElement('pre')
+  q.id = 'out'; q.textContent = '  ✗ 用例本身报错: ' + m + '\n' + (e && e.stack)
+  document.body.appendChild(q)
+}
+</script>
+<script type="module">
+import { readSelection, buildBlockIndex, indexOfDOMPosition, rangeFromOffsets } from './annotate.js'
+import { normalize } from './normalize.js'
+
+const root = document.getElementById('root')
+
+// 修复前的实现，逐字照抄。用来证明「原先能用的路径一个字都没变」——
+// 只修坏掉的那条路，不动别的，这是这次改动唯一的验收标准。
+function oldIndexOf(index, node, offset) {
+  for (let i = 0; i < index.nodes.length; i++) {
+    if (index.nodes[i] === node && index.offsets[i] >= offset) return i
+  }
+  return index.chars.length
+}
+
+// 与某个文本点等价的所有 DOM 写法，就是 WebKit 会规范化出来的那些。
+function equivalents(node, offset) {
+  const pts = [[node, offset]]
+  const climb = (isEdge, at) => {
+    let n = node
+    while (n.parentNode && n.parentNode !== root && isEdge(n)) {
+      n = n.parentNode
+      pts.push([n, at(n)])
+    }
+    if (n.parentNode && n.parentNode !== root) {
+      const i = Array.prototype.indexOf.call(n.parentNode.childNodes, n)
+      pts.push([n.parentNode, offset === 0 ? i : i + 1])
+    }
+  }
+  if (offset === 0) climb((n) => n.parentNode.firstChild === n, () => 0)
+  if (offset === node.length) climb((n) => n.parentNode.lastChild === n, (n) => n.childNodes.length)
+  return pts
+}
+
+let ok = 0, viaElement = 0, roundTrip = 0
+const drift = [], wrong = [], missed = []
+
+for (const block of root.querySelectorAll('[data-blk]')) {
+  const texts = []
+  const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT)
+  for (let n = w.nextNode(); n; n = w.nextNode()) texts.push(n)
+  const index = buildBlockIndex(block)
+
+  // ① 文本节点边界上，新旧实现必须逐字相同。
+  //    唯一允许不同的是旧实现退化成块尾的那些点 —— 那正是要修的地方。
+  for (const t of texts) {
+    for (let o = 0; o <= t.length; o++) {
+      const now = indexOfDOMPosition(index, t, o)
+      const before = oldIndexOf(index, t, o)
+      if (now !== before && before !== index.chars.length) {
+        drift.push(`${block.dataset.blk} ${JSON.stringify(t.data.slice(0, 12))}@${o}: ${before} → ${now}`)
+      }
+    }
+  }
+
+  // ② 每一种选法，读到的都必须正是选中的那几个字。
+  const pos = []
+  for (const t of texts) for (const o of [0, Math.floor(t.length / 2), t.length]) pos.push([t, o])
+  for (let i = 0; i < pos.length; i++) {
+    for (let j = i + 1; j < pos.length; j++) {
+      for (const [SC, SO] of equivalents(pos[i][0], pos[i][1])) {
+        for (const [EC, EO] of equivalents(pos[j][0], pos[j][1])) {
+          const r = document.createRange()
+          try { r.setStart(SC, SO); r.setEnd(EC, EO) } catch { continue }
+          if (r.collapsed) continue
+          const want = normalize(r.toString()).trim()
+          if (!want) continue
+          const s = getSelection(); s.removeAllRanges(); s.addRange(r)
+          const got = readSelection(root)
+          if (!got) {
+            missed.push(`${block.dataset.blk} 选中 ${JSON.stringify(want)} 却读成「没有选中」`)
+            continue
+          }
+          if (got.exact !== want) {
+            wrong.push(`${block.dataset.blk} 选中 ${JSON.stringify(want)} 读成 ${JSON.stringify(got.exact)}`)
+            continue
+          }
+          ok++
+          if (SC.nodeType === 1 || EC.nodeType === 1) viaElement++
+
+          // 偏移与引文必须说的是同一段。对不上时服务端会拿引文去块里重找，
+          // 而它找的是第一处 —— 同一段里出现两次的词就会被高亮到错的那一处。
+          const idx0 = buildBlockIndex(block)
+          if (idx0.chars.slice(got.startOff, got.endOff).join('') !== got.exact) {
+            wrong.push(`${block.dataset.blk} 偏移 ${got.startOff}–${got.endOff} 指向 `
+              + `${JSON.stringify(idx0.chars.slice(got.startOff, got.endOff).join(''))}，引文却是 ${JSON.stringify(got.exact)}`)
+            continue
+          }
+
+          // ③ 存下的偏移必须还原回同一段文字，否则高亮会画错地方。
+          //    走的就是画高亮那条路（rectsForAnnotation 用的同一个函数），
+          //    不在这里另抄一份 —— 抄一份就只是在测抄件。
+          const rr = rangeFromOffsets(buildBlockIndex(block), got.startOff, got.endOff)
+          if (!rr) { wrong.push(`${block.dataset.blk} 偏移 ${got.startOff}–${got.endOff} 还原不出区间`); continue }
+          // 画高亮就是走这条路。除了「还原出来的是同一段文字」，
+          // 还要求它不多盖两端的空白 —— 否则高亮会比选中的词宽出一个空格。
+          const drawn = rr.toString()
+          if (normalize(drawn).trim() !== want) {
+            wrong.push(`${block.dataset.blk} 偏移还原 ${JSON.stringify(want)} → ${JSON.stringify(normalize(drawn).trim())}`)
+          } else if (drawn !== drawn.trim()) {
+            wrong.push(`${block.dataset.blk} 高亮多盖了两端空白: ${JSON.stringify(drawn)}`)
+          } else roundTrip++
+        }
+      }
+    }
+  }
+}
+
+const lines = []
+const check = (name, bad) => {
+  if (bad.length === 0) lines.push(`  ✓ ${name}`)
+  else { lines.push(`  ✗ ${name} —— ${bad.length} 处`); bad.slice(0, 5).forEach((b) => lines.push(`      ${b}`)) }
+}
+check(`${ok} 种选法读到的都正是选中的那几个字`, wrong)
+check(`其中 ${viaElement} 种是元素边界（曾经一律读成「没有选中」）`, missed)
+check(`${roundTrip} 次偏移还原回原文一致`, roundTrip === ok ? [] : ['还原数与读到数对不上'])
+lines.push('  ✓ 偏移与引文逐条对齐（服务端「按引文找第一处」的兜底不会被误触发）')
+check('文本节点边界上新旧实现逐字相同', drift)
+if (viaElement < 100) lines.push('  ✗ 元素边界用例太少，这一节没有真正跑到')
+
+const pre = document.createElement('pre')
+pre.id = 'out'; pre.textContent = lines.join('\n')
+document.body.appendChild(pre)
+</script>
+HTML
+
+"$CHROME" --headless=new --disable-gpu --no-sandbox --allow-file-access-from-files \
+  --user-data-dir="$TMP/dom/profile" --virtual-time-budget=20000 \
+  --dump-dom "file://$TMP/dom/case.html" 2>/dev/null > "$TMP/dom/dump.html"
+
+python3 - "$TMP/dom/dump.html" <<'PY'
+import html, re, sys
+m = re.search(r'<pre id="out">(.*?)</pre>', open(sys.argv[1], encoding='utf-8').read(), re.S)
+if not m:
+    print('  ✗ 选区边界点用例没跑出结果（页面没加载起来？）'); sys.exit(1)
+text = html.unescape(m.group(1))
+print(text)
+sys.exit(1 if '✗' in text else 0)
+PY
+fi
