@@ -1,0 +1,93 @@
+# 打一个 v* 的 tag 就发布。
+#
+#   git tag v1.1.0 && git push origin v1.1.0
+#
+# 产出：六个平台的二进制 + 校验和 + GitHub Release + ghcr.io 镜像，
+# 配了 HOMEBREW_TAP_TOKEN 的话再加一个 Homebrew cask。
+#
+# 镜像不走 goreleaser 的 dockers，而是直接用仓库根的 Dockerfile：
+# 那份 Dockerfile 本来就要能单独 `docker build`（NAS 上的人会这么干），
+# 两边各维护一套构建逻辑迟早会漂。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（必须已经存在）"
+        required: true
+
+permissions:
+  contents: write # 建 Release
+  packages: write # 推 ghcr.io
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # goreleaser 靠 tag 之间的提交生成变更日志，浅克隆会让它拿不到历史。
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 没配这个 secret 时它是空串，.goreleaser.yaml 里的 skip_upload
+          # 会据此跳过 Homebrew 那一步，而不是让整个发布失败。
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # arm64 是给树莓派和 arm 架构 NAS 的，这类机器恰好是容器部署的主要场景。
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

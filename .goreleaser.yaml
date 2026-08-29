@@ -1,0 +1,136 @@
+# PreviewEverywhere 的发布配置。
+#
+# 打一个 tag，CI 就产出：多平台二进制 + 校验和 + Homebrew formula + GitHub Release。
+# 容器镜像不在这里，走 .github/workflows/release.yml 里单独的 buildx 步骤——
+# 那边直接复用仓库根的 Dockerfile，不必在两个地方各维护一份构建逻辑。
+#
+# 本地想验证改动，不用打 tag：
+#   goreleaser check                      # 只校验这份配置
+#   goreleaser release --snapshot --clean # 完整跑一遍，产物在 dist/，不上传
+
+version: 2
+
+project_name: pe
+
+before:
+  hooks:
+    # 前端产物是 //go:embed 进二进制的，所以必须在 go build 之前就位。
+    # 版本库里只有 web/dist/.gitkeep（构建产物文件名带哈希，提交它们只是噪音），
+    # 少了这一步，发出去的二进制会是一个打不开任何页面的空壳。
+    - sh -c 'cd web && npm ci --no-audit --no-fund'
+    - sh -c 'cd web && npm run build'
+
+builds:
+  - id: pe
+    main: ./cmd/pe
+    binary: pe
+    env:
+      # 纯 Go 依赖（SQLite 用 modernc.org/sqlite），关掉 cgo 才能得到
+      # 真正静态、可以直接 scp 到任意机器上跑的二进制。
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.buildDate={{ .CommitDate }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7" # 32 位的树莓派 OS 还在用
+    ignore:
+      # 这三个组合不存在或没人用，产出来只会让下载页更难读。
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    # 文件名要能一眼看出「这个包是给我这台机器的」，所以 os/arch 摆在前面，
+    # 32 位 arm 再带上 v7，免得和 arm64 混淆。
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+      - docs/使用手册.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    # 这些提交对使用者没有意义，别让它们淹掉真正的变更。
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+homebrew_casks:
+  - name: pe
+    repository:
+      owner: lorry-coder
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # 没配 HOMEBREW_TAP_TOKEN 就跳过，而不是让整个发布失败。
+    # tap 是个独立仓库，需要一个能写它的 token；在拿到之前，
+    # 二进制和安装脚本这两条路照样能走通。
+    skip_upload: '{{ if .Env.HOMEBREW_TAP_TOKEN }}false{{ else }}true{{ end }}'
+    binaries:
+      - pe
+    homepage: "https://github.com/lorry-coder/PreviewEverywhere"
+    description: "把 agent 产出的 md / html 变成手机上读得完的东西"
+    license: "MIT"
+    caveats: |
+      装完先跑一次向导，它会问三个问题然后打印二维码：
+
+        pe setup
+    hooks:
+      post:
+        # macOS 会给所有从网上下载的二进制打隔离标记，不摘掉的话
+        # 第一次运行会弹「无法验证开发者」。Homebrew 装的东西不该有这一步。
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pe"]
+          end
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
+  footer: |
+    ---
+
+    ## 装它
+
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/lorry-coder/PreviewEverywhere/main/install.sh | sh
+    pe setup
+    ```
+
+    或者直接下面挑一个对应你机器的包解开，把 `pe` 放进 PATH。
+    校验和在 `checksums.txt` 里。

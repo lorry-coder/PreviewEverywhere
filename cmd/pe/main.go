@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 
 	// 把时区库编进二进制。
 	//
@@ -16,7 +17,13 @@ import (
 	_ "time/tzdata"
 )
 
-const version = "1.0.0"
+// 这三个由构建时用 -ldflags -X 注入。默认值是给 `go build` 直接跑的开发构建用的——
+// 它说的是实话：这个二进制不是从某个 tag 发出来的。
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
 
 func main() {
 	log.SetFlags(log.Ltime)
@@ -45,7 +52,7 @@ func main() {
 	case "mcp":
 		err = cmdMCP(os.Args[2:])
 	case "version", "-v", "--version":
-		fmt.Println("pe", version)
+		printVersion()
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -58,6 +65,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "错误:", err)
 		os.Exit(1)
 	}
+}
+
+// printVersion 除了版本号还报出 commit 与构建时间。
+// 排查线上问题时「你跑的到底是哪个构建」是第一个要问的，
+// 而 `pe upgrade` 之后人很容易记不清自己在哪个版本上。
+func printVersion() {
+	fmt.Printf("pe %s\n", version)
+	fmt.Printf("  commit  %s\n", commit)
+	fmt.Printf("  built   %s\n", buildDate)
+	fmt.Printf("  go      %s %s/%s\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
 }
 
 func usage() {

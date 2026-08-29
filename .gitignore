@@ -1,4 +1,5 @@
 /pe
+# goreleaser 与 make cross 的产物。gitignore 不支持行尾注释，注释只能单独一行。
 /dist/
 node_modules/
 

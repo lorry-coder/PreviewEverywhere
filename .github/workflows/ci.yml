@@ -1,0 +1,77 @@
+# 每次推送都跑一遍完整验收。
+#
+# 三层，缺一不可：
+#   go test        —— 后端逻辑
+#   parity.sh      —— 前后端一致性（文本规范化、选区边界换算这些两边各有一份实现的东西）
+#   docs-check.sh  —— 按 README 与使用手册里写的命令真跑一遍
+#
+# 最后一层是给文档准备的：文档过期不会让编译或单测失败，只会让照着做的人卡住。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # 前端产物是 //go:embed 进二进制的，必须先于 go build。
+      - name: 构建
+        run: make build
+
+      - name: 后端测试
+        run: go test ./...
+
+      - name: 前端类型检查
+        run: cd web && npx tsc --noEmit
+
+      # parity.sh 里有一节要真 DOM（选区边界换算），借 headless Chrome 跑。
+      # ubuntu runner 自带 Chrome；万一哪天不带了，那一节会自己跳过而不是失败。
+      - name: 前后端一致性
+        run: bash scripts/parity.sh
+
+      - name: 文档里的操作还跑得通
+        run: bash scripts/docs-check.sh
+
+      - name: 安装脚本的语法（dash / busybox 都要过）
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq dash busybox
+          dash -n install.sh
+          busybox sh -n install.sh
+
+  # 交叉编译在发布时才做，但配置写错要当场知道，不能等到打 tag。
+  release-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+        env:
+          HOMEBREW_TAP_TOKEN: ""

@@ -1,7 +1,19 @@
 BINARY := pe
-GOFLAGS := -trimpath -ldflags="-s -w"
 
-.PHONY: build web go test clean run cross css icons check-docs docker
+# 版本号来自 git，不写死在代码里。发布走 goreleaser，它注入的是同名变量，
+# 所以本地 `make build` 出来的二进制和发布版报的是同一套字段——
+# 排查线上问题时第一个要问的就是「你跑的到底是哪个构建」。
+VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILDDATE ?= $(shell git log -1 --format=%cI 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+
+LDFLAGS := -s -w \
+  -X main.version=$(VERSION) \
+  -X main.commit=$(COMMIT) \
+  -X main.buildDate=$(BUILDDATE)
+GOFLAGS := -trimpath -ldflags="$(LDFLAGS)"
+
+.PHONY: build web go test clean run cross css icons check-docs docker snapshot
 
 ## build: 构建前端并把它嵌进 Go 二进制。产物就是可以 scp 走的那个文件。
 build: web go
@@ -38,6 +50,11 @@ css:
 ## icons: 重新生成 PWA 图标（改图案或配色时才需要）
 icons:
 	go run ./cmd/genicons
+
+## snapshot: 本地完整跑一遍发布流程，产物在 dist/，不上传任何东西。
+## 改了 .goreleaser.yaml 之后先跑这个，别拿打 tag 去试。
+snapshot:
+	HOMEBREW_TAP_TOKEN="" goreleaser release --snapshot --clean --skip=publish
 
 ## docker: 构建容器镜像（给不方便跑 systemd 的 NAS 用）
 docker:
