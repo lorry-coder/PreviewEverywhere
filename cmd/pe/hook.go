@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -325,5 +326,49 @@ func installHook(path, command string) error {
 	fmt.Println("没反应的话跑 `pe hook-ingest --verbose` 看它抱怨什么：")
 	fmt.Printf("  echo '{\"session_id\":\"t\",\"cwd\":\"%s\",\"tool_input\":{\"file_path\":\"/some/doc.md\"}}' | pe hook-ingest --verbose\n",
 		filepath.Dir(path))
+	return nil
+}
+
+// cmdAgent 是「把平台接进 agent 工作流」这件事的入口。
+//
+// 它就是原来的 hook-install，换了个名字：hook 是实现手段，
+// 而人想做的事情是「让 agent 写的东西自动进来」。
+// 顺带把 MCP 这条路也在这里指出来——两者是「被动留档」和「主动投递」的分工，
+// 分散在两处讲，人很难意识到自己该用哪个。
+func cmdAgent(args []string) error {
+	if len(args) == 0 {
+		return errors.New("用法: pe agent install [--write]   |   pe agent status")
+	}
+	switch args[0] {
+	case "install":
+		return cmdHookInstall(args[1:])
+	case "status":
+		return agentStatus()
+	default:
+		return fmt.Errorf("未知子命令 %q，可用: install / status", args[0])
+	}
+}
+
+// agentStatus 只回答一个问题：hook 装上了没有。
+//
+// 这个问题值得单列，因为 hook 的设计原则是绝不打断 agent——
+// 没装上不会有任何报错，你只会觉得「怎么没进来」。
+func agentStatus() error {
+	path := defaultSettingsPath()
+	data, err := os.ReadFile(path)
+	switch {
+	case err != nil:
+		fmt.Printf("  ○ 没装（%s 还不存在）\n", path)
+		fmt.Println("    装上：pe agent install --write")
+	case !strings.Contains(string(data), "hook-ingest"):
+		fmt.Printf("  ○ 没装（%s 里没有 pe 的 hook）\n", path)
+		fmt.Println("    装上：pe agent install --write")
+	default:
+		fmt.Printf("  ● 已装（%s）\n", path)
+		fmt.Println("    agent 每写一个 .md / .html 就会自动进来，不管它写在哪个目录。")
+	}
+	fmt.Println()
+	fmt.Println("  另一条路是 MCP：`pe mcp` 让 agent 自己决定「这份值得给人看」，")
+	fmt.Println("  并附上标题、标签和摘要。两者的分工是「被动留档」和「主动投递」。")
 	return nil
 }

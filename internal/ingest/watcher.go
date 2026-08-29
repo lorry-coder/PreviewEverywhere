@@ -120,7 +120,7 @@ func NewWatcher(p *Pipeline, cfg *config.Live) (*Watcher, error) {
 func (w *Watcher) Run(ctx context.Context) error {
 	w.roots = w.resolveRoots()
 	if len(w.roots) == 0 {
-		log.Printf("没有配置监听目录，只接受推送。用 `pe watch add <目录>` 添加。")
+		log.Printf("没有配置监听目录，只接受推送。用 `pe source add <目录>` 添加。")
 	}
 	for _, r := range w.roots {
 		w.addTree(r.Path)

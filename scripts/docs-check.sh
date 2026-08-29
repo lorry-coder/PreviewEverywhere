@@ -279,7 +279,7 @@ check "过期/不存在的导出链接返回 404" "404" "${code:-404}"
 
 echo
 echo "▸ 使用手册：手册自称的命令都存在"
-for c in setup serve reload status doctor service client pair device watch push hook-install hook-ingest mcp token version feedback; do
+for c in setup serve reload status doctor service client pair device source push agent hook-ingest mcp token upgrade completion version feedback; do
   "$PE" help | grep -q "  pe $c" && ok "pe $c" || bad "手册写了 pe $c，实际没有"
 done
 # 手册明确说「没有内置备份命令」，验证这条否定断言
@@ -426,6 +426,36 @@ DEVID=$("$PE" device list --json | python3 -c 'import json,sys; print(json.load(
 "$PE" device revoke "$DEVID" >/dev/null 2>&1
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$W/dev.jar" "$BASE/api/v1/status")
 check "撤掉之后设备立刻失效" "401" "$code"
+
+echo
+echo "▸ 改名之后旧名字仍然能用"
+# 改名不该让任何人手上的笔记和脚本作废。
+"$PE" source list >/dev/null 2>&1 && ok "pe source list（新名）" || bad "pe source 不能用"
+"$PE" watch list  >/dev/null 2>&1 && ok "pe watch list（旧名仍然可用）" || bad "旧名 pe watch 失效了"
+"$PE" agent status >/dev/null 2>&1 && ok "pe agent status（新名）" || bad "pe agent 不能用"
+"$PE" hook-install >/dev/null 2>&1 && ok "pe hook-install（旧名仍然可用）" || bad "旧名 hook-install 失效了"
+out=$("$PE" token rotate --port $PORT 2>&1 | grep -oP '口令:\s*\K[0-9a-f]+')
+[ -n "$out" ] && ok "pe token rotate（新写法）" || bad "pe token rotate 不能用"
+TOKEN=$out; A=(-H "Authorization: Bearer $TOKEN"); sleep 3
+
+echo
+echo "▸ pe completion：补的不只是命令名"
+out=$("$PE" completion bash 2>&1)
+case "$out" in *"complete -F"*) ok "bash 补全脚本";; *) bad "bash 补全脚本不对";; esac
+"$PE" completion zsh  | grep -q "#compdef pe" && ok "zsh 补全脚本"  || bad "zsh 补全脚本不对"
+"$PE" completion fish | grep -q "complete -c pe" && ok "fish 补全脚本" || bad "fish 补全脚本不对"
+out=$("$PE" completion __complete 2>&1)
+case "$out" in *doctor*setup*|*setup*doctor*) ok "补出顶层命令";; *) bad "顶层命令补不出来：$out";; esac
+out=$("$PE" completion __complete device 2>&1)
+case "$out" in *revoke*) ok "补出 device 的子命令";; *) bad "子命令补不出来：$out";; esac
+# 这一条是手写补全相对框架生成的意义所在：它查了当前有哪些检查项
+out=$("$PE" completion __complete doctor --run 2>&1)
+case "$out" in *inotify*) ok "补出 doctor 的检查项（查的是当前实现）";; *) bad "检查项补不出来：$out";; esac
+
+echo
+echo "▸ pe upgrade 不会在你没要求时联网"
+out=$("$PE" upgrade --check 2>&1 || true)
+case "$out" in *"版本"*) ok "upgrade --check 给出结论";; *) bad "upgrade --check 输出异常：$out";; esac
 
 echo
 echo "════════════════════════════════════════"

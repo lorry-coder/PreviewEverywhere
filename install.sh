@@ -71,6 +71,9 @@ if [ -z "$version" ]; then
 	version=${latest##*/}
 	case "$version" in
 		v*) ;;
+		# 一个版本都还没发过时，GitHub 把 /releases/latest 转到 /releases。
+		# 这不是解析失败，是「还没有可装的」，要分开说。
+		releases) die "$REPO 还没有发布过任何版本。" ;;
 		*)  die "没查到最新版本。可以指定一个：PE_VERSION=v1.0.0 sh install.sh" ;;
 	esac
 fi

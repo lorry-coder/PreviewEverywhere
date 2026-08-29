@@ -56,7 +56,9 @@ func main() {
 		err = cmdClient(os.Args[2:])
 	case "push":
 		err = cmdPush(os.Args[2:])
-	case "watch":
+	// source 是正式名字：它管的是「文档从哪来」，而 watch 听起来像一个动作。
+	// watch 保留为别名 —— 它出现在已有的文档和别人的笔记里。
+	case "source", "watch":
 		err = cmdWatch(os.Args[2:])
 	case "token":
 		err = cmdToken(os.Args[2:])
@@ -68,8 +70,16 @@ func main() {
 		err = cmdFeedback(os.Args[2:])
 	case "hook-ingest":
 		err = cmdHookIngest(os.Args[2:])
+	// agent install 是正式名，hook-install 保留为别名。
+	// 带连字符的命令是这套命令里唯一的形状例外，趁改名一起收掉。
+	case "agent":
+		err = cmdAgent(os.Args[2:])
 	case "hook-install":
 		err = cmdHookInstall(os.Args[2:])
+	case "upgrade":
+		err = cmdUpgrade(os.Args[2:])
+	case "completion":
+		err = cmdCompletion(os.Args[2:])
 	case "mcp":
 		err = cmdMCP(os.Args[2:])
 	case "version", "-v", "--version":
@@ -134,9 +144,10 @@ func usage() {
         管客户端配置（~/.config/pe/config.toml），pe push / hook / MCP 用它。
         set 写完会去连一次，当场告诉你通没通。
 
-  pe watch add <目录> [--project 名称] [--include '*.md']
-  pe watch list
-  pe watch rm <目录>
+  pe source add <目录> [--project 名称] [--include '*.md']
+  pe source list
+  pe source rm <目录>
+        （旧名 pe watch 仍然可用）
         管理监听目录。支持 glob，例如 ~/Code/*/docs。
         可以直接指向仓库根，agent 写在哪个目录都能收到；添加时会报出
         需要多少 inotify 句柄，超预算才需要收窄范围。
@@ -144,7 +155,9 @@ func usage() {
   pe push <文件|-> [--project 名称] [--tag 标签]... [--title 标题] [--run 会话ID]
         推送单篇文档。读 ~/.config/pe/config.toml，也认 PE_ENDPOINT / PE_TOKEN。
 
-  pe hook-install [--write]
+  pe agent install [--write]
+  pe agent status
+        （旧名 pe hook-install 仍然可用）
         打印（或直接写入）Claude Code 的 PostToolUse hook 配置。装上之后
         agent 每写一个 .md / .html 就自动进平台，不用管它写在哪个目录，
         同一次会话的产出还会在时间线上聚成一组。
@@ -178,6 +191,13 @@ func usage() {
         换主口令。主口令是给机器用的（pe push / hook / MCP），
         换掉它们要重配；配对过的设备不受影响。
         有了 pe pair 之后，这条命令只在「怀疑口令泄露了」时才需要。
+
+  pe upgrade [--check] [--to v1.2.0]
+        原地换掉这个二进制。除非你敲这条命令，程序不会主动联网。
+
+  pe completion bash|zsh|fish
+        打印补全脚本。它会补设备编号、doctor 的检查项这类要查当前状态
+        才知道的东西，不只是命令名。
 
   pe version
 

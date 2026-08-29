@@ -16,7 +16,7 @@ import (
 
 func cmdWatch(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("用法: pe watch add|list|rm …")
+		return fmt.Errorf("用法: pe source add|list|rm …")
 	}
 	switch args[0] {
 	case "add":
@@ -41,7 +41,7 @@ func watchAdd(args []string) error {
 		return err
 	}
 	if len(positional) != 1 {
-		return fmt.Errorf("用法: pe watch add <目录> [--project 名称] [--include '*.md']")
+		return fmt.Errorf("用法: pe source add <目录> [--project 名称] [--include '*.md']")
 	}
 
 	target := positional[0]
@@ -98,7 +98,7 @@ func watchList(args []string) error {
 		return err
 	}
 	if len(cfg.Watch) == 0 {
-		fmt.Println("还没有配置监听目录。用 `pe watch add <目录>` 添加。")
+		fmt.Println("还没有配置监听目录。用 `pe source add <目录>` 添加。")
 		return nil
 	}
 	for _, w := range cfg.Watch {
@@ -122,7 +122,7 @@ func watchRemove(args []string) error {
 		return err
 	}
 	if len(positional) != 1 {
-		return fmt.Errorf("用法: pe watch rm <目录>")
+		return fmt.Errorf("用法: pe source rm <目录>")
 	}
 	cfg, err := config.Load(*dataDir)
 	if err != nil {
@@ -144,7 +144,7 @@ func watchRemove(args []string) error {
 	}
 	cfg.Watch = kept
 	if !removed {
-		return fmt.Errorf("配置里没有 %s，用 `pe watch list` 看看现有的", target)
+		return fmt.Errorf("配置里没有 %s，用 `pe source list` 看看现有的", target)
 	}
 	if err := cfg.Save(); err != nil {
 		return err

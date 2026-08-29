@@ -285,7 +285,7 @@ func checkSources(c *checkCtx) checkResult {
 	}
 	return checkResult{Status: statusWarn,
 		Detail: fmt.Sprintf("%d 条，其中 %d 条指向不存在的目录", len(c.cfg.Watch), len(missing)),
-		Hint:   strings.Join(missing, "\n") + "\n删掉它：pe watch rm <目录>"}
+		Hint:   strings.Join(missing, "\n") + "\n删掉它：pe source rm <目录>"}
 }
 
 func checkInotify(c *checkCtx) checkResult {
