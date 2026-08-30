@@ -35,7 +35,7 @@ test:
 	cd web && npx tsc --noEmit
 	bash scripts/parity.sh
 
-## check-docs: 按 README 与使用手册逐字照做一遍，确认文档里的操作还能跑通
+## check-docs: 按两份 README 与使用手册逐字照做一遍，确认文档里的操作还能跑通
 check-docs: go
 	bash scripts/docs-check.sh
 

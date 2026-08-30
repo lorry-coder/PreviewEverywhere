@@ -1,8 +1,8 @@
 # PreviewEverywhere
 
-**把 agent 产出的 md / html 变成手机上读得完的东西。**
+**Read the documents your coding agent writes — on your phone.**
 
-<sub>A single-binary, self-hosted reader for the documents your coding agent writes. Runs on your dev machine, reads on your phone over LAN.</sub>
+English · [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/lorry-coder/PreviewEverywhere/actions/workflows/ci.yml/badge.svg)](https://github.com/lorry-coder/PreviewEverywhere/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lorry-coder/PreviewEverywhere)](https://github.com/lorry-coder/PreviewEverywhere/releases)
@@ -10,328 +10,382 @@
 
 ---
 
-## 它解决什么
+## What it's for
 
-Coding agent 一天能写出十几份报告、方案、评估、迁移清单。它们躺在各个项目的
-`docs/` 里，文件名一个比一个长，而你真正有空读它们的时候——通勤路上、排队时、
-睡前——手边只有手机。
+A coding agent can produce a dozen reports, plans, risk assessments and migration
+checklists in a day. They pile up in the `docs/` folder of every project, with
+filenames longer than the last — and the moments you actually have time to read
+them (commuting, waiting in line, before bed) are exactly the moments you only
+have a phone in your hand.
 
-PreviewEverywhere 是一个跑在你开发机上的常驻小服务。它盯着你的项目目录，
-agent 每写出一份文档就自动收进来、渲染好、建好索引；手机连同一个 Wi-Fi，
-扫一次码就能读，一年不用再输任何东西。
+PreviewEverywhere is a small always-on service that runs on your dev machine.
+It watches your project directories; every document your agent writes gets
+ingested, rendered and indexed automatically. Your phone joins the same Wi-Fi,
+scans a QR code once, and that's it for a year.
 
-**整个平台是一个可执行文件**，没有运行时依赖，交叉编译不需要目标机工具链——
-挪到 NAS 或树莓派上就是 `scp` 一个文件的事。
+**The whole platform is a single executable** with no runtime dependencies.
+Cross-compiling needs no toolchain on the target, so moving it to a NAS or a
+Raspberry Pi is one `scp`.
 
-## 装它
+> **Heads-up on language.** The web UI, the CLI output and the
+> [user manual](docs/使用手册.md) are currently **Chinese only**. The code,
+> comments and this README are the parts available in English. If you don't read
+> Chinese, the screenshots and messages will not be usable to you yet.
+> Text normalization also contains one CJK-specific rule (see
+> [design decisions](#four-decisions-not-to-undo-lightly)).
+
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lorry-coder/PreviewEverywhere/main/install.sh | sh
 pe setup
 ```
 
-`pe setup` 问三个问题（盯哪个目录、要不要开机自启、要不要接进 agent），
-剩下的自己做完，末尾打印一个二维码。手机扫一下就进去了。
+`pe setup` asks three questions — which directory to watch, whether to start on
+boot, whether to hook into your agent — does the rest itself, and prints a QR
+code at the end. Scan it with your phone and you're in.
 
-其它装法：
+Other ways:
 
 ```bash
 brew install lorry-coder/tap/pe                    # macOS / Linuxbrew
 
 docker run -d --name pe -p 8080:8080 \
   -v pe-data:/data -e TZ=Asia/Shanghai \
-  ghcr.io/lorry-coder/previeweverywhere:latest     # NAS 上用这个
+  ghcr.io/lorry-coder/previeweverywhere:latest     # the right choice on a NAS
 ```
 
-也可以直接从 [Releases](https://github.com/lorry-coder/PreviewEverywhere/releases)
-挑一个对应你机器的包解开，把 `pe` 放进 `PATH`。校验和在 `checksums.txt` 里。
+Or grab an archive for your machine from
+[Releases](https://github.com/lorry-coder/PreviewEverywhere/releases), unpack it
+and put `pe` on your `PATH`. Checksums are in `checksums.txt`.
 
-支持 linux / macOS 的 amd64、arm64，以及 32 位 arm（树莓派）。
+Builds are published for linux and macOS on amd64 and arm64, plus 32-bit arm
+(Raspberry Pi).
 
-## 它能做什么
+## What it does
 
-**读**
-- 首页是**时间线**而不是知识库封面：有 agent 会话 ID 时按会话分组，
-  没有时按「日期 + 项目」降级。面对持续流入的运行记录，
-  「昨晚那次跑出了什么」比「某个项目下的全部文档」更常用。
-- mermaid 图表与 KaTeX 公式按需加载，首屏只有 230KB JS。
-- **离线可读**：加到手机主屏就是一个 PWA。地铁上没信号时，
-  之前打开过的文档还能读完，图片还在，划过的重点还看得见。
+**Reading**
+- The home page is a **timeline**, not a knowledge-base cover page. Documents are
+  grouped by agent session when a session ID is available, and fall back to
+  "date + project" when it isn't. For a stream of run output, *"what came out of
+  last night's run"* is a far more common question than *"every document in this
+  project"*.
+- Mermaid diagrams and KaTeX are loaded on demand; the first paint ships 230 KB
+  of JS.
+- **Readable offline.** Add it to your home screen and it's a PWA. On a subway
+  with no signal, documents you opened before still read to the end, images are
+  still there, and your highlights are still visible.
 
-**找**
-- FTS5 全文检索，中文走 trigram 分词。搜索框支持组合语法（⌘K 聚焦）：
+**Finding**
+- SQLite FTS5 full-text search, using the trigram tokenizer for Chinese. The
+  search box takes a small query language (⌘K to focus):
 
   ```
-  迁移风险                全文
-  "双写窗口期"             整段短语
-  tag:待复核              带某个标签
-  tag:风险 -tag:已解决     组合与排除
-  project:auth 双写       在某个项目里搜
-  is:unread  kind:html    状态与类型
+  migration risk          full text
+  "dual-write window"     exact phrase
+  tag:review              has a tag
+  tag:risk -tag:resolved  combine and exclude
+  project:auth dual       within one project
+  is:unread  kind:html    state and type
   ```
-- 手动标签编辑，带墓碑——你删掉的 front-matter 标签不会在 agent
-  重新生成文档时复活。
+- Manual tag edits are tombstoned — a front-matter tag you deleted will not come
+  back the next time the agent regenerates the document.
 
-**做笔记**
-- 划词批注四类：高亮 / 笔记 / 待办 / 疑问。
-- **批注能在文档被重写之后活下来**。这是整个项目唯一真正困难的部分，
-  策略分三层：块 ID 命中（零成本）→ 引文模糊匹配（自动迁移并提示复核）→
-  失联（不删除，留原文快照等人工重挂）。
-- 跨文档的待办汇总，可导出 Markdown 回喂给 agent。
-- 版本 diff 与「只看变化」。
+**Annotating**
+- Four kinds of inline annotation: highlight, note, todo, question.
+- **Annotations survive the document being rewritten.** This is the only genuinely
+  hard part of the project. The strategy has three tiers: block-ID hit (free) →
+  fuzzy quote match (relocated automatically, flagged for review) → orphaned
+  (never deleted; the original text is snapshotted and can be re-anchored by hand).
+- Todos and questions are collected across documents and can be exported as
+  Markdown to feed back to the agent.
+- Version diffs, with a "changes only" view.
 
-**带走**
-- 导出单文件 HTML（图片内联）、打包 zip、服务端生成的 PDF（内嵌中文字体，
-  不依赖系统打印），或者直接下载原始文件。
+**Taking it with you**
+- Export as a single self-contained HTML file (images inlined), a zip bundle, a
+  server-generated PDF (CJK font subset embedded — no system print dialog
+  involved), or just download the original file.
 
-## 文档怎么进来
+## Getting documents in
 
-四条通道，从「装完就不用管」到「完全手动」：
+Four channels, from "install once and forget" to fully manual:
 
-| 通道 | 适合 | 要配什么 |
+| Channel | Good for | Setup |
 |---|---|---|
-| **Claude Code hook**（推荐） | 日常 | 客户端口令，一次 |
-| 文件监听 | 已经有固定的 docs 目录 | 监听目录，一次 |
-| `pe push` | 脚本、CI、别的机器 | 客户端口令 |
-| MCP | 让 agent 自己决定「这份值得给人看」 | 客户端口令 |
+| **Claude Code hook** (recommended) | Day to day | Client token, once |
+| Directory watching | You already have a fixed `docs/` layout | Watch path, once |
+| `pe push` | Scripts, CI, another machine | Client token |
+| MCP | Letting the agent decide "this one is worth showing" | Client token |
 
-装 hook 之后，agent 每写一个 `.md` / `.html` 就自动进来，**不管它写在哪个目录**，
-同一次会话的产出还会按 `session_id` 在时间线上聚成一组：
+With the hook installed, every `.md` / `.html` your agent writes arrives
+automatically **regardless of which directory it lands in**, and output from one
+session is grouped together on the timeline by `session_id`:
 
 ```bash
-pe agent install --write     # 写进 ~/.claude/settings.json（会先备份）
+pe agent install --write     # writes to ~/.claude/settings.json (backs it up first)
 ```
 
-> 装完记得重开一个 Claude Code 会话才生效。
-> 没反应时先 `pe agent status` 看装没装上，再用
+> Start a new Claude Code session for it to take effect. If nothing shows up,
+> check `pe agent status` first, then run
 > `echo '{"cwd":"/x","tool_input":{"file_path":"/x/a.md"}}' | pe hook-ingest --verbose`
-> 看它到底抱怨什么。
+> to see what it is actually complaining about.
 
-监听目录也支持 glob，**引号不能省**：
+Watched directories support globs, and **the quotes are not optional**:
 
 ```bash
-pe source add ~/你的项目/docs
-pe source add '~/Code/*/docs'      # 引号让 glob 原样存进配置，运行时才展开
+pe source add ~/projects/docs
+pe source add '~/Code/*/docs'      # quotes keep the glob intact; it expands at runtime
 pe source list
 ```
 
-> 不加引号的话 shell 会先替你展开：匹配到多个目录时命令直接报用法错误；
-> 更麻烦的是**只匹配到一个目录时它会静默成功**——你以为配了 glob，
-> 实际只钉死了那一个目录，以后新建的目录再也进不来。
-> 拿不准就 `pe source list` 看一眼存进去的到底是 glob 还是一个具体路径。
+> Without quotes your shell expands the glob first. If it matches several
+> directories the command fails with a usage error — annoying but obvious. The
+> nasty case is when it matches **exactly one**: the command silently succeeds and
+> you end up with that single path pinned forever, so directories created later
+> never get picked up. When in doubt, `pe source list` shows you whether what got
+> stored is a glob or a concrete path.
 
-改完监听规则**不用重启**，运行中的服务几秒内自己跟上。
+Changing watch rules **does not require a restart** — a running server picks them
+up within a couple of seconds.
 
-### 让 agent 顺手带上元数据
+### Let the agent add metadata for you
 
-在文档开头写几行 front-matter，就免掉了后续所有手动归类。渲染时会自动剥掉：
+A few lines of front-matter save you all the manual filing later. They are
+stripped at render time:
 
 ```markdown
 ---
-title: 迁移风险评估
+title: Migration risk assessment
 project: auth-refactor
-tags: [风险, 待复核]
-summary: 双写窗口期是主要风险来源
+tags: [risk, needs-review]
+summary: The dual-write window is the main source of risk
 ---
 ```
 
-值得把这条写进项目的 `CLAUDE.md`：「生成报告类文档时，在开头加 front-matter
-注明 project 和 tags」。
+Worth putting in your project's `CLAUDE.md`: *"when generating report-style
+documents, add front-matter with project and tags."*
 
-## 常用命令
-
-```bash
-pe setup                    # 首次配置向导
-pe status                   # 服务在不在、盯着什么、收了多少
-pe doctor --fix             # 自检，能自动修的直接修
-
-pe pair                     # 加一台设备：打印一次性配对码
-pe device list              # 哪几台登录着
-pe device revoke <编号>      # 撤掉其中一台，不影响别的
-
-pe source add|list|rm       # 管监听目录
-pe service install          # 装成开机自启（systemd 用户服务 / launchd）
-pe service logs             # 看日志
-pe client set               # 配客户端（pe push / hook / MCP 用）
-
-pe push 报告.md --tag 风险   # 从任意机器推一篇进来
-cat 结论.md | pe push -      # 管道推送
-
-pe upgrade                  # 原地自更新
-pe completion zsh           # 补全脚本
-```
-
-完整说明见 **[docs/使用手册.md](docs/使用手册.md)**。
-
-## 注意事项
-
-### 安全边界（务必读一遍）
-
-这个程序的设计前提是**单用户 + 可信局域网**。具体意味着：
-
-- **默认绑在 `0.0.0.0:8080`，走明文 HTTP。** 局域网里 HTTPS 拿不到可信证书，
-  而自签证书会让手机每次都跳警告；所以这里选择了明文。
-  **不要把这个端口直接暴露到公网。** 需要在外面读，请用
-  [Tailscale](https://tailscale.com/) 这类东西把它留在私有网络里。
-- **鉴权是一个共享口令 + 一年有效的 Cookie。** 没有账号体系，没有权限分级。
-  拿到口令的人能读你所有的文档。
-- **主口令只存 sha256**，忘了拿不回来，只能 `pe token rotate` 换一个新的。
-  日常加设备请用 `pe pair`——它给那台设备一份自己的凭据，不影响其它设备。
-- 数据全在 `~/.local/share/pe/` 一个目录里，没有任何东西发到外部。
-  唯一的对外网络请求有两处，都可以关掉或不用：
-  入库时抓取 agent HTML 引用的 CDN 图表库（`localize_cdn = false` 关掉），
-  以及你主动敲 `pe upgrade` 的时候。
-
-### 已知边界
-
-- **单用户假设是地基。** 阅读状态直接挂在 `doc` 上、批注无归属人。
-  表结构预留了扩展位，但改多人是一次真实迁移，不是加个字段。
-- **批注重定位做不到 100%。** agent 大幅重写时失联批注一定会出现。
-  对策是「永不删除 + 留原文快照 + 支持手动重挂」，而不是追求更聪明的算法——
-  原文真的消失时，任何算法都只能猜，猜错比找不到更糟。
-- 一条批注只归属一个块，跨段落的选区会被截到起始段末尾。
-- 含公式或图表的段落里，批注高亮会跳过公式/图表本身那一段
-  （它们在布局上没有对应的矩形），文字部分不受影响。
-- FTS 只索引 head 版本。搜不到历史版本里出现过、现在已删掉的内容。
-- 中文两字词走 `LIKE` 全表匹配而不是索引。万级文档下感觉不到，
-  真到十万级要换成应用层分词而不是继续加 `LIKE`。
-- `blobs/` 目前只增不减，还没有 GC。`pe doctor --fix` 能清掉孤儿文件，
-  但不会回收「被旧版本引用过、现在没人要」的那些。
-- **inotify 句柄。** 递归监听大仓库时可能超出系统配额，
-  症状是「新文档有时候不进来」且没有任何报错。
-  `pe doctor` 会当场把这件事查出来并给出解法。
-- 容器里**一定要设 `TZ`**。时间线按「服务端本地日期」分组，而界面上的
-  「今天 / 昨天」按你手机的时区显示，两边不一致会让半夜前后写的文档串档。
-
-## 出问题了
-
-先跑这个，它把手册里那张排查表变成了一条命令：
+## Common commands
 
 ```bash
-pe doctor            # 十项检查，每项都给出确切的下一步
-pe doctor --fix      # 能自动修的直接修
-pe status            # 服务在不在、端口通不通、客户端配好没
+pe setup                    # first-run wizard
+pe status                   # running? watching what? how much came in?
+pe doctor --fix             # self-check; fixes what it can
+
+pe pair                     # add a device: prints a one-time pairing code
+pe device list              # which devices are signed in
+pe device revoke <id>       # revoke one; the others are unaffected
+
+pe source add|list|rm       # manage watched directories
+pe service install          # install as a user service (systemd / launchd)
+pe service logs             # tail the logs
+pe client set               # configure the client (used by push / hook / MCP)
+
+pe push report.md --tag risk    # push a document from any machine
+cat notes.md | pe push -        # or from a pipe
+
+pe upgrade                  # replace the binary in place
+pe completion zsh           # shell completion
 ```
 
-界面上也有一页**环境自查**（侧栏底部），以及一个**问题反馈**入口——
-提交的反馈带着当时的环境快照存在本地，用 `pe feedback` 或直接打开数据目录下的
-`feedback.md` 就能看。
+The full reference is in **[docs/使用手册.md](docs/使用手册.md)** (Chinese).
 
-## 部署
+## Things to know
 
-| 环境 | 建议 |
+### Security boundary (please read)
+
+This program is built on the assumption of **a single user on a trusted LAN**.
+Concretely:
+
+- **It binds `0.0.0.0:8080` and speaks plain HTTP by default.** There is no way to
+  get a trusted certificate for a LAN address, and a self-signed one makes the
+  phone warn on every visit, so plain HTTP is the deliberate choice.
+  **Do not expose this port to the public internet.** If you need to read from
+  outside, put it behind something like [Tailscale](https://tailscale.com/) and
+  keep it on a private network.
+- **Authentication is one shared token plus a year-long cookie.** There are no
+  accounts and no permission levels. Anyone with the token can read everything.
+- **The master token is stored as a SHA-256 hash only.** If you lose it there is no
+  way to get it back — you rotate it with `pe token rotate`. To add a device day
+  to day, use `pe pair` instead: it issues that device its own credential and
+  leaves the others alone.
+- All data lives in one directory, `~/.local/share/pe/`, and nothing is sent
+  anywhere. There are exactly two outbound requests in the whole program and both
+  are avoidable: fetching CDN chart libraries referenced by agent-generated HTML
+  so they still render offline (turn it off with `localize_cdn = false`), and
+  `pe upgrade` when you explicitly run it.
+
+### Known limits
+
+- **The single-user assumption is load-bearing.** Read state hangs directly off
+  `doc`, and annotations have no owner. The schema leaves room, but going
+  multi-user is a real migration, not an added column.
+- **Annotation relocation is not 100%.** When the agent rewrites a document
+  heavily, some annotations will be orphaned. The answer is "never delete, keep a
+  snapshot of the original text, support manual re-anchoring" rather than a
+  cleverer algorithm — once the original text is truly gone, any algorithm is
+  guessing, and a wrong guess is worse than not finding it.
+- An annotation belongs to exactly one block; a selection spanning paragraphs is
+  truncated at the end of the first one.
+- In paragraphs containing formulas or diagrams, annotation highlights skip the
+  formula/diagram itself (it has no layout rectangle). The text around it is
+  unaffected.
+- Full-text search only indexes the head version. Content that existed in an older
+  version and has since been deleted is not searchable.
+- Two-character Chinese queries fall back to a `LIKE` scan instead of the index.
+  Imperceptible at tens of thousands of documents; at hundreds of thousands the
+  answer is application-level segmentation, not more `LIKE`.
+- `blobs/` only grows; there is no GC yet. `pe doctor --fix` removes orphaned
+  files, but not blobs that were referenced by an old version and are no longer
+  wanted.
+- **inotify watches.** Recursively watching a large repository can exceed the
+  system limit. The symptom is "new documents sometimes don't show up", with no
+  error anywhere. `pe doctor` detects this and tells you how to fix it.
+- **Always set `TZ` in a container.** The timeline groups by the *server's* local
+  date while the UI labels "today / yesterday" using your *phone's* timezone;
+  a mismatch puts documents written around midnight in the wrong bucket.
+
+## When something goes wrong
+
+Start here. It turns the troubleshooting table from the manual into one command:
+
+```bash
+pe doctor            # ten checks, each with a concrete next step
+pe doctor --fix      # fixes what can be fixed automatically
+pe status            # running? port answering? client configured?
+```
+
+The UI also has an **environment self-check** page (bottom of the sidebar) and a
+**feedback** form — submitted reports are stored locally with a snapshot of the
+environment at the time, readable via `pe feedback` or by opening `feedback.md`
+in the data directory.
+
+## Deployment
+
+| Environment | Recommendation |
 |---|---|
-| 普通 Linux、自己装系统的小主机、macOS | `pe service install`（用户服务，不需要 root） |
-| 群晖 / QNAP / unRAID / TrueNAS SCALE | Docker |
+| Ordinary Linux, a small home server, macOS | `pe service install` (user service, no root) |
+| Synology / QNAP / unRAID / TrueNAS SCALE | Docker |
 
 ```bash
-pe service install     # 装好并启动，顺带开启 linger（免得你退出登录服务就停）
+pe service install     # installs, starts, and enables linger for you
 pe service status
 pe service logs
 ```
 
-**部署到远端 = 推送模式。** 这一点比选哪种运行方式更重要：你的 agent 和文件
-都在开发机上，远端那台机器根本看不到那些目录。所以远程部署时「文件监听」
-这条通道基本用不上，真正在用的是 hook 和 `pe push`——它们一个目录挂载都不需要。
-开发机上把客户端指向远端即可：
+**Remote deployment means push mode.** This matters more than which runtime you
+pick: your agent and your files are on your dev machine, and the remote box cannot
+see those directories at all. So directory watching is essentially unusable in a
+remote deployment — what actually works there is the hook and `pe push`, neither
+of which needs a single mount. On the dev machine, point the client at the remote:
 
 ```bash
-pe client set --endpoint http://<服务器IP>:8080 --token <口令>
+pe client set --endpoint http://<server-ip>:8080 --token <token>
 ```
 
-细节（Docker 的三个坑、备份、换机器、彻底重置）见
-[使用手册第五、七节](docs/使用手册.md)。
+Details (the three Docker gotchas, backups, moving machines, full reset) are in
+[sections 5 and 7 of the manual](docs/使用手册.md).
 
-## 从源码构建
+## Building from source
 
-需要 Go 1.25+ 与 Node 20+。
+Requires Go 1.25+ and Node 20+.
 
 ```bash
 git clone https://github.com/lorry-coder/PreviewEverywhere
 cd PreviewEverywhere
-make build          # 构建前端并嵌进 Go 二进制，产出 ./pe
+make build          # builds the frontend, embeds it, produces ./pe
 ```
 
 ```bash
-make test           # go test + 前端类型检查 + 前后端一致性
-make check-docs     # 按 README 与使用手册写的操作真跑一遍
-make run            # 开发时用，跳过前端构建（前端另起 npm run dev）
-make snapshot       # 本地完整跑一遍发布流程，产物在 dist/，不上传
-make cross          # 交叉编译
+make test           # go test + frontend typecheck + front/back parity
+make check-docs     # actually runs every command documented in the READMEs and manual
+make run            # backend only, for development (run the frontend with npm run dev)
+make snapshot       # full release pipeline locally; artifacts in dist/, nothing uploaded
+make cross          # cross-compile
 ```
 
-> 不提供 `go install`：前端构建产物不在版本库里（文件名带内容哈希，
-> 提交它们只是噪音），`go install` 出来的会是一个打不开任何页面的空壳。
-> 请用发布包、Homebrew、Docker，或者 `make build`。
+> **`go install` is deliberately not supported.** The frontend build output is not
+> in version control (the filenames are content-hashed; committing them is pure
+> noise), so a `go install` binary would be a shell that serves no pages at all.
+> Use a release archive, Homebrew, Docker, or `make build`.
 
-## 它是怎么组织起来的
+## How it's put together
 
 ```
-cmd/pe/            CLI 与服务入口
+cmd/pe/            CLI and service entry points
 internal/
-  config/          pe.toml（服务端）与 ~/.config/pe/config.toml（客户端）
-  store/           SQLite + 迁移 + 内容寻址的 blob 存储 + 检索 / 时间线 / 批注 / diff
-  render/          goldmark → 净化 → 块 ID / 纯文本 / 目录 / 图片本地化
-  anchor/          批注锚定与重定位（近似匹配在这里）
-  search/          搜索框的查询语法解析
-  ingest/          采集管线、fsnotify 监听、CDN 内联
-  server/          HTTP 接口、鉴权、SSE
-  pdf/             服务端 PDF 生成（自带 CJK 字体子集）
-web/               React + Vite 前端，构建产物 embed 进二进制
-scripts/parity.sh  前后端一致性检查
-scripts/docs-check.sh  文档里写的操作真跑一遍
+  config/          pe.toml (server) and ~/.config/pe/config.toml (client)
+  store/           SQLite + migrations + content-addressed blobs + search / timeline / annotations / diff
+  render/          goldmark → sanitize → block IDs / plain text / TOC / image localization
+  anchor/          annotation anchoring and relocation (the fuzzy matching lives here)
+  search/          query-language parser for the search box
+  ingest/          ingestion pipeline, fsnotify watcher, CDN inlining
+  server/          HTTP API, auth, SSE
+  pdf/             server-side PDF generation (bundled CJK font subset)
+web/               React + Vite frontend, embedded into the binary at build time
+scripts/parity.sh  front/back consistency checks
+scripts/docs-check.sh  runs everything the docs claim you can do
 ```
 
-### 四条不该轻易改动的设计
+### Four decisions not to undo lightly
 
-**1 · 平台是文件系统的下游。**
-原始文件会被复制一份进 `blobs/`，而不是只记路径。所以 agent 删了中间产物、
-你切了分支，手机上照样读得到。代价是磁盘占用翻倍（文本可忽略）。
+**1 · The platform is downstream of the filesystem.**
+The original file is *copied* into `blobs/`, not merely referenced by path. So when
+the agent deletes an intermediate artifact or you switch branches, your phone can
+still read it. The cost is double disk usage (negligible for text).
 
-**2 · Markdown 在服务端渲染，块 ID 是内容哈希。**
-每个叶子块带一个 `data-blk`，值来自该块规范化文本的 sha256。
-关键性质是「内容不变则 ID 不变」——agent 重写文档时没动过的段落 ID 一致，
-批注可以零成本命中。改成客户端渲染会让 DOM 在手机和电脑之间产生细微差异，
-批注锚点就会漂。
+**2 · Markdown is rendered server-side, and block IDs are content hashes.**
+Every leaf block carries a `data-blk` whose value is the SHA-256 of that block's
+normalized text. The property that matters is *same content ⇒ same ID*: when the
+agent rewrites a document, untouched paragraphs keep their IDs and annotations hit
+for free. Moving rendering to the client would introduce small DOM differences
+between phone and desktop, and annotation anchors would drift.
 
-规范化里有一条中文特有的规则：**两个汉字之间的换行不产生空格**。
-否则 agent 换一次折行宽度，整段的块 ID 全变——而重新折行恰恰是最常见的无意义 diff。
+Normalization contains one CJK-specific rule: **a line break between two Han
+characters produces no space.** Without it, the agent changing its wrap width once
+would change every block ID in the paragraph — and re-wrapping is by far the most
+common meaningless diff.
 
-**3 · 文档身份有一条兜底链。**
-`显式 key → 仓库内相对路径 → 文件名 → 标题 → 内容哈希`。最后两级是给管道推送
-准备的：`cat a.md | pe push -` 没有文件名，若统一兜底成同一个名字，连推两篇会让
-第二篇把第一篇覆盖成新版本。
+**3 · Document identity has a fallback chain.**
+`explicit key → path within the repo → filename → title → content hash`. The last
+two exist for pipe input: `cat a.md | pe push -` has no filename, and if everything
+fell back to one shared name, pushing two documents in a row would turn the second
+into a new version of the first.
 
-**4 · 采集通道只影响元数据来源。**
-文件监听、`pe push`、HTTP 接口、hook 与 MCP，从「归属判定」往后走的是同一条管线。
-新增通道 = 新增一个调用方，不碰管线。
+**4 · The ingestion channel only affects where metadata comes from.**
+Directory watching, `pe push`, the HTTP API, the hook and MCP all converge on the
+same pipeline from "decide which project this belongs to" onward. Adding a channel
+means adding a caller, not touching the pipeline.
 
-### agent HTML 的两种模式
+### Two modes for agent-generated HTML
 
-| 模式 | 做法 | 代价 |
+| Mode | How | Trade-off |
 |---|---|---|
-| `reader` | 净化后套平台排版 | 丢原样式，换来可批注、可检索、移动端正常 |
-| `raw` | 塞进 `<iframe sandbox="allow-scripts">` | 不可批注，换来图表与交互完整保留 |
+| `reader` | Sanitized, then styled by the platform | Loses the original styling; gains annotation, search, and a sane mobile layout |
+| `raw` | Dropped into `<iframe sandbox="allow-scripts">` | Not annotatable; keeps charts and interactivity intact |
 
-沙箱刻意只给 `allow-scripts`、**不给** `allow-same-origin`：iframe 处于独立的
-不透明源，脚本能跑但读不到父页面 DOM 和 Cookie。两个都给等于没有沙箱，
-是这类设计最常见的错误。即便走 raw 模式，管线也照样跑一遍 reader 抽出纯文本，
-所以它仍然能被搜到。
+The sandbox deliberately grants `allow-scripts` and **not** `allow-same-origin`:
+the iframe lives in an opaque origin, so scripts run but cannot reach the parent
+DOM or cookies. Granting both is equivalent to no sandbox at all, and is the most
+common mistake in this kind of design. Even in `raw` mode the pipeline still runs
+a `reader` pass to extract plain text, so the document remains searchable.
 
-## 参与
+## Contributing
 
-Issue 和 PR 都欢迎。动手之前请先跑一遍：
+Issues and PRs are welcome. Before you start, run:
 
 ```bash
 make test && make check-docs
 ```
 
-`check-docs` 是给文档准备的：它在一个假的 HOME 里把 README 与使用手册里写的
-命令真跑一遍。文档过期不会让编译或单测失败，只会让照着做的人卡住，所以单列一项。
+`check-docs` exists for the documentation: in a fake `HOME`, it runs every command
+the READMEs and the manual tell you to run. Stale docs never fail a compile or a
+unit test — they only strand the person following them — so it gets its own gate.
 
-代码注释请说明**为什么**，尤其是那些「看起来可以更简单」的地方——
-这个仓库里绝大多数不直观的写法，背后都有一次踩过的坑。
+Please write comments that explain **why**, especially where something looks like
+it could be simpler. Almost every non-obvious line in this repository has a
+specific mistake behind it.
 
-## 许可
+## License
 
 [MIT](LICENSE)

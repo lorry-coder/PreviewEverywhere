@@ -67,6 +67,7 @@ archives:
         formats: [zip]
     files:
       - README.md
+      - README.zh-CN.md
       - LICENSE
       - docs/使用手册.md
 
