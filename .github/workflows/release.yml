@@ -89,5 +89,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 不传的话容器里的 `pe version` 会说 dev，而排查线上问题时
+          # 第一个要问的就是「你跑的到底是哪个构建」。
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILDDATE=${{ github.event.repository.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -6,7 +6,14 @@
 # 被官方支持的运行方式。
 
 # ── 前端 ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS web
+# --platform=$BUILDPLATFORM：**在构建机的架构上原生跑**，不进模拟器。
+#
+# 这一条是踩出来的。原先没有它，`docker buildx --platform linux/amd64,linux/arm64`
+# 会让 arm64 那一路整个在 QEMU 里执行，包括这里的 npm ci + npm run build。
+# 实测在 GitHub runner 上跑满 30 分钟被掐掉。
+#
+# 而前端产物是一堆 js/css，**和架构毫无关系**，在模拟器里再构建一遍纯属浪费。
+FROM --platform=$BUILDPLATFORM node:20-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
@@ -14,7 +21,16 @@ COPY web/ ./
 RUN npm run build
 
 # ── 后端 ──────────────────────────────────────────────────────────
-FROM golang:1.25-alpine AS build
+# 同样原生跑：Go 本来就会交叉编译，用 GOOS/GOARCH 指目标就行，
+# 不需要让整个工具链在模拟器里爬。TARGETOS / TARGETARCH 由 buildx 自动注入。
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
+# 版本信息由发布流水线传进来。不传就是 dev —— 那是实话：
+# 手工 docker build 出来的确实不是从某个 tag 发出来的。
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILDDATE=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -22,11 +38,15 @@ COPY . .
 # 前端产物要在 go build 之前就位：它是被 //go:embed 打进二进制的。
 COPY --from=web /src/web/dist ./web/dist
 # CGO_ENABLED=0 才能得到真正静态的二进制（SQLite 用的是纯 Go 驱动，不需要 cgo）。
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /pe ./cmd/pe
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+      -ldflags="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.buildDate=$BUILDDATE" \
+      -o /pe ./cmd/pe
 
 # ── 运行时 ────────────────────────────────────────────────────────
 # 用 alpine 而不是 scratch：镜像只大几 MB，但换来一个能 exec 进去看看的
 # shell——部署在 NAS 上排查问题时，这点很值。
+# 这一层是目标架构（没有 --platform，默认就是 $TARGETPLATFORM）。
+# 它里面只有一次 apk add 和一次 COPY，在模拟器里跑也就几十秒，可以接受。
 FROM alpine:3
 RUN apk add --no-cache ca-certificates tzdata \
  && adduser -D -u 1000 pe \

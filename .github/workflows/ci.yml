@@ -63,6 +63,29 @@ jobs:
           dash -n install.sh
           busybox sh -n install.sh
 
+  # 镜像也要在每次推送时真构建一次。
+  #
+  # 这一段是补上的：v1.0.0 发布时镜像那一步跑满 30 分钟被掐掉，而在那之前
+  # 这个 Dockerfile **从来没有在 CI 里构建过** —— 唯一验证过的方式是
+  # 本机 `docker build`，而我这边 daemon 配了不可达的代理，连基础镜像都拉不到。
+  # 于是「多平台构建会不会超时」这件事只能等发布时才知道。
+  #
+  # 不推，只构建；两个平台都构建，因为出事的恰恰是 arm64 那一路。
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # 交叉编译在发布时才做，但配置写错要当场知道，不能等到打 tag。
   release-config:
     runs-on: ubuntu-latest
