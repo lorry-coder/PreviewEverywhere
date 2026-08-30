@@ -286,6 +286,94 @@ pe client set --endpoint http://<server-ip>:8080 --token <token>
 Details (the three Docker gotchas, backups, moving machines, full reset) are in
 [sections 5 and 7 of the manual](docs/使用手册.md).
 
+## Uninstalling
+
+Nothing here happens implicitly. In particular, **no uninstall step touches your
+data** — you delete that yourself, on purpose.
+
+### 1 · Stop and remove the service
+
+```bash
+pe service uninstall     # stops it, removes the unit, leaves the data alone
+```
+
+One thing it deliberately does *not* undo: `pe service install` enabled systemd
+*linger* for your user, and uninstall leaves it on, because other user services of
+yours may depend on it. Turn it off yourself if nothing else needs it:
+
+```bash
+sudo loginctl disable-linger "$USER"
+```
+
+### 2 · Remove the binary
+
+```bash
+sudo rm /usr/local/bin/pe    # installed by install.sh (or rm ~/.local/bin/pe)
+brew uninstall pe            # installed by Homebrew
+rm ./pe                      # built from source — or just delete the clone
+```
+
+### 3 · Decide what to do with the data
+
+Everything lives in one directory. Here is the complete list of what is on your
+disk and whether the steps above removed it:
+
+| Path | What it is | Removed above? |
+|---|---|---|
+| `~/.local/share/pe/` | **All your data.** See the breakdown below. | **No** |
+| ` ├ pe.db`, `pe.db-wal`, `pe.db-shm` | The SQLite database — three files that belong together | No |
+| ` ├ blobs/` | Content-addressed copies of every original file. Usually most of the size. | No |
+| ` ├ pe.toml` | Server config, including the token hash | No |
+| ` ├ runtime.json` | pid/port of a running server; deleted on a clean exit | — |
+| ` └ feedback.md` | Plain-text projection of submitted feedback (only exists if there is any) | No |
+| `~/.config/pe/config.toml` | Client config — endpoint plus the token **in plaintext** | No |
+| `~/.config/systemd/user/pe.service` | systemd user unit (Linux) | Yes |
+| `~/Library/LaunchAgents/pe.plist` | launchd agent (macOS) | Yes |
+| `~/.claude/settings.json` | The hook entry added by `pe agent install` | **No — see below** |
+
+Back it up first if you might want it later. Stop the service before copying:
+recent writes sit in `pe.db-wal`, so copying `pe.db` alone from a running server
+loses them.
+
+```bash
+pe service stop
+tar czf pe-backup-$(date +%F).tar.gz -C ~/.local/share pe
+```
+
+Then remove it:
+
+```bash
+rm -rf ~/.local/share/pe     # documents, annotations, tags, read state — all of it
+rm -rf ~/.config/pe          # client config (contains the token in plaintext)
+```
+
+**There is no `pe agent uninstall`.** Remove the `hook-ingest` entry from
+`~/.claude/settings.json` by hand, or restore the backup that
+`pe agent install --write` made before editing it:
+
+```bash
+mv ~/.claude/settings.json.bak ~/.claude/settings.json
+```
+
+### Docker
+
+The named volume is the data, and it survives removing the container:
+
+```bash
+docker rm -f pe
+docker volume rm pe-data                                # ← this is your data
+docker image rm ghcr.io/lorry-coder/previeweverywhere
+```
+
+### Resetting without uninstalling
+
+```bash
+rm -rf ~/.local/share/pe
+```
+
+The next `pe serve` treats it as a fresh install: rebuilds the database, generates
+a new token, prints a new QR code. The binary and the service stay as they are.
+
 ## Building from source
 
 Requires Go 1.25+ and Node 20+.

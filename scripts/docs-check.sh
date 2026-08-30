@@ -488,6 +488,38 @@ else
 fi
 
 echo
+echo "▸ 卸载：文档承诺「不碰数据」，这条必须是真的"
+# README 和手册都白纸黑字写着「所有卸载动作都不碰数据」。这是最容易在重构中
+# 悄悄失真、又最不可挽回的一条承诺，所以要有东西盯着。
+#
+# 注意这个脚本跑在**假 HOME** 里（见开头的 export），而真实的 systemd 用户实例
+# 看不到伪造的 XDG_CONFIG_HOME，所以这里装不上用户服务——这恰恰是
+# README 卸载那一节描述的失败之一。装不上就只验数据安全那一半，
+# 而不是把整段跳过：`uninstall` 会不会误删数据，跟装没装上没关系。
+unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/pe.service"
+before=$(curl -sf "${A[@]}" "$BASE/api/v1/docs" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))')
+
+if "$PE" service install --bind "127.0.0.1:$((PORT+7))" >/dev/null 2>&1 && [ -f "$unit" ]; then
+  ok "pe service install 写出了单元文件"
+  "$PE" service uninstall >/dev/null 2>&1
+  [ -f "$unit" ] && bad "卸载没删掉单元文件" || ok "卸载删掉了单元文件"
+else
+  ok "跳过服务装卸用例（这个环境起不了用户服务，见 README 卸载一节）"
+  # 没装上也要走一遍卸载路径，确认它不会顺手删掉别的东西
+  "$PE" service uninstall >/dev/null 2>&1 || true
+fi
+
+# 无论装没装上，这三条都必须成立
+[ -f "$HOME/.local/share/pe/pe.db" ] && ok "卸载之后数据库还在" || bad "卸载把数据库删了！"
+[ -d "$HOME/.local/share/pe/blobs" ] && ok "卸载之后 blobs 还在" || bad "卸载把 blobs 删了！"
+after=$(curl -sf "${A[@]}" "$BASE/api/v1/docs" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))')
+check "卸载前后文档数不变" "$before" "$after"
+
+# 文档里列出的路径必须是程序真的在用的那些
+[ -f "$HOME/.local/share/pe/pe.toml" ] && ok "pe.toml 在文档说的位置" || bad "pe.toml 不在文档说的位置"
+[ -f "$HOME/.config/pe/config.toml" ] && ok "客户端配置在文档说的位置" || bad "客户端配置不在文档说的位置"
+
+echo
 echo "════════════════════════════════════════"
 [ "$fail" -eq 0 ] && echo "  README 与使用手册里的操作全部可复现" || echo "  有 $fail 项与文档不符"
 echo "════════════════════════════════════════"

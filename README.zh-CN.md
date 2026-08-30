@@ -242,6 +242,92 @@ pe client set --endpoint http://<服务器IP>:8080 --token <口令>
 细节（Docker 的三个坑、备份、换机器、彻底重置）见
 [使用手册第五、七节](docs/使用手册.md)。
 
+## 卸载
+
+这里没有任何一步是隐式发生的。尤其是：**所有卸载动作都不碰你的数据**，
+数据要你自己有意识地删掉。
+
+### 一 · 停掉并移除服务
+
+```bash
+pe service uninstall     # 停服务、删单元文件，数据一个字节都不动
+```
+
+有一件事它**刻意不做**：`pe service install` 当初替你开了 systemd 的 linger，
+卸载不会关掉它——因为你可能还有别的用户服务靠它活着。确认没有别的东西需要，
+再自己关：
+
+```bash
+sudo loginctl disable-linger "$USER"
+```
+
+### 二 · 删掉二进制
+
+```bash
+sudo rm /usr/local/bin/pe    # install.sh 装的（或者 rm ~/.local/bin/pe）
+brew uninstall pe            # Homebrew 装的
+rm ./pe                      # 从源码构建的 —— 或者直接删掉整个克隆
+```
+
+### 三 · 决定数据怎么办
+
+所有东西都在一个目录里。下面是它在你磁盘上留下的**全部**内容，
+以及上面两步有没有删掉它：
+
+| 路径 | 是什么 | 上面删了吗 |
+|---|---|---|
+| `~/.local/share/pe/` | **你的全部数据。** 明细见下面几行。 | **没有** |
+| ` ├ pe.db`、`pe.db-wal`、`pe.db-shm` | SQLite 数据库——三个文件是一体的 | 没有 |
+| ` ├ blobs/` | 每份原始文件的内容寻址副本，通常占了大头 | 没有 |
+| ` ├ pe.toml` | 服务端配置，含口令哈希 | 没有 |
+| ` ├ runtime.json` | 运行中服务的 pid / 端口，正常退出时会自己清掉 | — |
+| ` └ feedback.md` | 提交过的反馈的纯文本投影（有反馈才有这个文件） | 没有 |
+| `~/.config/pe/config.toml` | 客户端配置——地址加**明文口令** | 没有 |
+| `~/.config/systemd/user/pe.service` | systemd 用户单元（Linux） | 删了 |
+| `~/Library/LaunchAgents/pe.plist` | launchd agent（macOS） | 删了 |
+| `~/.claude/settings.json` | `pe agent install` 加进去的那段 hook | **没有，见下** |
+
+以后可能还要用的话先备份。拷之前要停服务：最近的写入还在 `pe.db-wal` 里，
+从运行中的服务那儿只拷 `pe.db` 会丢掉它们。
+
+```bash
+pe service stop
+tar czf pe-backup-$(date +%F).tar.gz -C ~/.local/share pe
+```
+
+然后删：
+
+```bash
+rm -rf ~/.local/share/pe     # 文档、批注、标签、已读状态，全在这里
+rm -rf ~/.config/pe          # 客户端配置（里面是明文口令）
+```
+
+**没有 `pe agent uninstall` 这条命令。** 自己把 `~/.claude/settings.json` 里
+带 `hook-ingest` 的那段删掉，或者还原 `pe agent install --write` 动手前留下的备份：
+
+```bash
+mv ~/.claude/settings.json.bak ~/.claude/settings.json
+```
+
+### Docker
+
+那个具名卷就是数据，删容器不会带走它：
+
+```bash
+docker rm -f pe
+docker volume rm pe-data                                # ← 这一步才是删数据
+docker image rm ghcr.io/lorry-coder/previeweverywhere
+```
+
+### 只想重置，不想卸载
+
+```bash
+rm -rf ~/.local/share/pe
+```
+
+下次 `pe serve` 会当作全新安装：重建数据库、生成新口令、打印新二维码。
+二进制和服务都留在原处。
+
 ## 从源码构建
 
 需要 Go 1.25+ 与 Node 20+。
