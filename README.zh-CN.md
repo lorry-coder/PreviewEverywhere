@@ -36,8 +36,6 @@ pe setup
 其它装法：
 
 ```bash
-brew install lorry-coder/tap/pe                    # macOS / Linuxbrew
-
 docker run -d --name pe -p 8080:8080 \
   -v pe-data:/data -e TZ=Asia/Shanghai \
   ghcr.io/lorry-coder/previeweverywhere:latest     # NAS 上用这个
@@ -265,7 +263,6 @@ sudo loginctl disable-linger "$USER"
 
 ```bash
 sudo rm /usr/local/bin/pe    # install.sh 装的（或者 rm ~/.local/bin/pe）
-brew uninstall pe            # Homebrew 装的
 rm ./pe                      # 从源码构建的 —— 或者直接删掉整个克隆
 ```
 
@@ -392,7 +389,7 @@ make cross          # 交叉编译
 
 > 不提供 `go install`：前端构建产物不在版本库里（文件名带内容哈希，
 > 提交它们只是噪音），`go install` 出来的会是一个打不开任何页面的空壳。
-> 请用发布包、Homebrew、Docker，或者 `make build`。
+> 请用发布包、Docker，或者 `make build`。
 
 ## 它是怎么组织起来的
 

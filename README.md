@@ -48,8 +48,6 @@ code at the end. Scan it with your phone and you're in.
 Other ways:
 
 ```bash
-brew install lorry-coder/tap/pe                    # macOS / Linuxbrew
-
 docker run -d --name pe -p 8080:8080 \
   -v pe-data:/data -e TZ=Asia/Shanghai \
   ghcr.io/lorry-coder/previeweverywhere:latest     # the right choice on a NAS
@@ -309,7 +307,6 @@ sudo loginctl disable-linger "$USER"
 
 ```bash
 sudo rm /usr/local/bin/pe    # installed by install.sh (or rm ~/.local/bin/pe)
-brew uninstall pe            # installed by Homebrew
 rm ./pe                      # built from source — or just delete the clone
 ```
 
@@ -442,7 +439,7 @@ make cross          # cross-compile
 > **`go install` is deliberately not supported.** The frontend build output is not
 > in version control (the filenames are content-hashed; committing them is pure
 > noise), so a `go install` binary would be a shell that serves no pages at all.
-> Use a release archive, Homebrew, Docker, or `make build`.
+> Use a release archive, Docker, or `make build`.
 
 ## How it's put together
 
