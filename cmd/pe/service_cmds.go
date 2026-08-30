@@ -145,14 +145,25 @@ func serviceInstall(args []string) error {
 	_ = (*svc).Uninstall()
 
 	if err := (*svc).Install(); err != nil {
-		return fmt.Errorf("安装服务失败: %w", err)
+		// 装失败会留下一个写出来了但没 enable 的单元文件。
+		// 不清掉的话，下一次重试报的是「Init already exists」——
+		// 一条把真正的原因完全盖住的信息（实测撞到过）。
+		//
+		// 敢直接删是因为这个函数开头刚 Uninstall 过一次：此刻还在那儿的
+		// 单元文件只可能是这一次写出来的。
+		if unit := userUnitPath(); unit != "" {
+			os.Remove(unit) //nolint:errcheck // 清不掉也只是回到原先那个状态
+		}
+		return serviceFailure("安装服务失败", err)
 	}
 	fmt.Println("  ✓ 已安装为用户服务")
 
 	enableLinger()
 
 	if err := (*svc).Start(); err != nil {
-		return fmt.Errorf("服务装好了但没起来: %w", err)
+		// 装好了却起不来，多半是服务自己退了（端口被占是最常见的一种），
+		// 而不是 systemd 的问题。所以这里除了通用诊断还要指向服务自己的日志。
+		return serviceFailure("服务装好了但没起来", err)
 	}
 	fmt.Println("  ✓ 已启动")
 	fmt.Println()
@@ -220,24 +231,24 @@ func serviceControl(action string, args []string) error {
 			_ = err
 		}
 		if err := (*svc).Uninstall(); err != nil {
-			return fmt.Errorf("卸载服务失败: %w", err)
+			return serviceFailure("卸载服务失败", err)
 		}
 		fmt.Println("  ✓ 已卸载。数据一个字节都没动，还在数据目录里。")
 		return nil
 
 	case "start":
 		if err := (*svc).Start(); err != nil {
-			return err
+			return serviceFailure("启动失败", err)
 		}
 		fmt.Println("  ✓ 已启动")
 	case "stop":
 		if err := (*svc).Stop(); err != nil {
-			return err
+			return serviceFailure("停止失败", err)
 		}
 		fmt.Println("  ✓ 已停止")
 	case "restart":
 		if err := (*svc).Restart(); err != nil {
-			return err
+			return serviceFailure("重启失败", err)
 		}
 		fmt.Println("  ✓ 已重启")
 	}

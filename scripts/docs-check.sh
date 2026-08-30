@@ -459,6 +459,35 @@ out=$("$PE" upgrade --check 2>&1 || true)
 case "$out" in *"版本"*) ok "upgrade --check 给出结论";; *) bad "upgrade --check 输出异常：$out";; esac
 
 echo
+echo "▸ 装服务失败时，要说得出为什么"
+# kardianos 调 systemctl 时把 stderr 丢了，只剩一个 exit status 1。
+# 这正是这轮改造要消灭的那类「坏了但看不出为什么」，所以钉住它。
+if command -v systemctl >/dev/null 2>&1; then
+  out=$(env -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
+        "$PE" service install --data "$W/svcdiag" 2>&1 || true)
+  case "$out" in
+    *"Failed to connect to bus"*) ok "把 systemctl 的原话带出来了";;
+    *) bad "没带出 systemctl 的原话，只有：$out";;
+  esac
+  case "$out" in
+    *linger*) ok "并给出了能照着做的下一步";;
+    *) bad "没给出下一步";;
+  esac
+  # 失败不该留下半个单元文件 —— 留了的话重试会报「Init already exists」，
+  # 把真正的原因整个盖住。
+  unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/pe.service"
+  [ -f "$unit" ] && bad "装失败却留下了单元文件 $unit" || ok "装失败不留半成品单元文件"
+  out2=$(env -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
+         "$PE" service install --data "$W/svcdiag" 2>&1 || true)
+  case "$out2" in
+    *"Failed to connect to bus"*) ok "重试仍然报真正的原因，不是「已存在」";;
+    *) bad "重试报的不是真正的原因：$out2";;
+  esac
+else
+  ok "跳过服务诊断用例（本机没有 systemctl）"
+fi
+
+echo
 echo "════════════════════════════════════════"
 [ "$fail" -eq 0 ] && echo "  README 与使用手册里的操作全部可复现" || echo "  有 $fail 项与文档不符"
 echo "════════════════════════════════════════"
