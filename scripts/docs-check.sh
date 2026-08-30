@@ -520,6 +520,32 @@ check "卸载前后文档数不变" "$before" "$after"
 [ -f "$HOME/.config/pe/config.toml" ] && ok "客户端配置在文档说的位置" || bad "客户端配置不在文档说的位置"
 
 echo
+echo "▸ 从源码构建之后怎么跑（README「Building from source」）"
+# README 说：服务跑着的时候重新构建是安全的（go build 换名写入），
+# 但 cp 覆盖会报 text file busy。这两条都会随工具链变化而失真，钉住。
+cp "$PE" "$W/busy-pe"
+"$W/busy-pe" serve --bind "127.0.0.1:$((PORT+9))" --data "$W/busy-data" >/dev/null 2>&1 &
+busypid=$!
+for _ in $(seq 1 40); do curl -sf "http://127.0.0.1:$((PORT+9))/" -o /dev/null && break; sleep 0.25; done
+
+if cp "$PE" "$W/busy-pe" 2>/dev/null; then
+  bad "cp 覆盖正在运行的二进制居然成功了 —— README 说它会报 text file busy"
+else
+  ok "cp 覆盖正在运行的二进制会失败（README 已警告）"
+fi
+if ( cd "$REPO" && go build -trimpath -o "$W/busy-pe" ./cmd/pe ) >/dev/null 2>&1; then
+  ok "go build -o 覆盖正在运行的二进制不会失败（所以 make build 是安全的）"
+else
+  bad "go build -o 覆盖失败了 —— README 说 make build 在服务跑着时也安全"
+fi
+kill $busypid 2>/dev/null || true
+
+# README 说数据落在 ~/.local/share/pe，不管怎么装
+"$W/busy-pe" status --json 2>/dev/null \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["dataDir"].endswith("/.local/share/pe"), d["dataDir"]' \
+  && ok "默认数据目录与 README 一致" || bad "默认数据目录和 README 说的不一样"
+
+echo
 echo "════════════════════════════════════════"
 [ "$fail" -eq 0 ] && echo "  README 与使用手册里的操作全部可复现" || echo "  有 $fail 项与文档不符"
 echo "════════════════════════════════════════"

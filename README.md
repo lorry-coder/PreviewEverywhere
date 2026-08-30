@@ -384,6 +384,53 @@ cd PreviewEverywhere
 make build          # builds the frontend, embeds it, produces ./pe
 ```
 
+### Running it
+
+`make build` leaves `./pe` in the repository — it is **not** on your `PATH`:
+
+```bash
+./pe setup          # same wizard; answer y to "start on boot" and it's running
+./pe serve          # or run it in the foreground yourself
+```
+
+Three things that only bite you when running from a source build:
+
+**Every command needs the `./`.** The wizard's own hints print `pe serve`,
+`pe status` and so on without it, because it doesn't know how it was invoked.
+Either keep typing `./`, or put the clone on your `PATH`:
+
+```bash
+export PATH="$PATH:$PWD"
+```
+
+**Rebuilding while it runs is safe, but does not swap the version.**
+`make build` succeeds even with the server running — `go build -o` writes a new
+file and renames over the old one, so you never get `text file busy`. But the
+running process is holding the *old* inode and keeps serving the old build until
+you restart it. `./pe status` says so plainly:
+
+```
+⚠ 跑着的是 xxx，盘上的是 yyy —— 重启才会换过去
+```
+
+**If you install the service from here, the unit points at this directory.**
+`pe service install` writes the absolute path of `./pe` into the unit, so moving
+or deleting the clone afterwards leaves a service that cannot start
+(`ConditionFileIsExecutable` blocks it). To decouple them, copy the binary onto
+your `PATH` first — and stop the service before you do, because `cp` truncates
+in place and a running binary gives `text file busy`:
+
+```bash
+pe service stop
+sudo cp pe /usr/local/bin/pe
+pe service install
+```
+
+Data goes to `~/.local/share/pe/` either way, so you can start from a source
+build today and switch to a release binary later without losing anything.
+
+### Other make targets
+
 ```bash
 make test           # go test + frontend typecheck + front/back parity
 make check-docs     # actually runs every command documented in the READMEs and manual

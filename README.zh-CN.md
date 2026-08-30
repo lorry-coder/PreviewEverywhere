@@ -338,6 +338,50 @@ cd PreviewEverywhere
 make build          # 构建前端并嵌进 Go 二进制，产出 ./pe
 ```
 
+### 怎么跑起来
+
+`make build` 把 `./pe` 留在仓库目录里，它**不在** `PATH` 上：
+
+```bash
+./pe setup          # 同一个向导；第二问答 y 就装成服务并起来了
+./pe serve          # 或者自己前台跑
+```
+
+三件只有源码构建才会撞上的事：
+
+**所有命令都要带 `./`。** 向导自己打印的提示写的是 `pe serve`、`pe status`，
+不带 `./`——它不知道你是怎么调它的。要么每次带上，要么把仓库目录加进 `PATH`：
+
+```bash
+export PATH="$PATH:$PWD"
+```
+
+**服务跑着的时候重新构建是安全的，但不会换版本。** `make build` 照样成功，
+因为 `go build -o` 是写新文件再改名覆盖，不会报 `text file busy`。
+但正在跑的进程持有的是**旧** inode，不重启就一直提供旧构建。
+`./pe status` 会直接说出来：
+
+```
+⚠ 跑着的是 xxx，盘上的是 yyy —— 重启才会换过去
+```
+
+**从这里装服务的话，单元文件里写的是这个目录的绝对路径。**
+`pe service install` 把 `./pe` 的绝对路径写进 unit，所以装完之后再移动或删掉
+这个克隆，服务就起不来了（`ConditionFileIsExecutable` 会拦住它）。
+要解开这个绑定，先把二进制拷到 `PATH` 上——而且拷之前要停服务，
+因为 `cp` 是原地截断，覆盖正在运行的二进制会报 `text file busy`：
+
+```bash
+pe service stop
+sudo cp pe /usr/local/bin/pe
+pe service install
+```
+
+数据两种方式都在 `~/.local/share/pe/`，所以今天从源码跑、以后换成发布版，
+一篇文档都不会丢。
+
+### 其它 make 目标
+
 ```bash
 make test           # go test + 前端类型检查 + 前后端一致性
 make check-docs     # 按两份 README 与使用手册写的操作真跑一遍
