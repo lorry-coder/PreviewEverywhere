@@ -407,6 +407,10 @@ check "同一个配对码不能用第二次" "401" "$code"
 out=$("$PE" device list 2>&1)
 case "$out" in *"自检设备"*) ok "pe device list 列出这台设备";; *) bad "device list 没列出来：$out";; esac
 
+# status 要报出配对设备数，而且要跟着 pair / revoke 动
+n=$("$PE" status --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["pairedDevices"])')
+check "status 报出配对设备数" "1" "$n"
+
 # 核心断言：换主口令之后，配对过的设备照常能用
 NEWTOKEN=$("$PE" token rotate --port $PORT 2>&1 | grep -oP '口令:\s*\K[0-9a-f]+')
 sleep 3
@@ -427,6 +431,8 @@ DEVID=$("$PE" device list --json | python3 -c 'import json,sys; print(json.load(
 "$PE" device revoke "$DEVID" >/dev/null 2>&1
 code=$(curl -s -o /dev/null -w '%{http_code}' -b "$W/dev.jar" "$BASE/api/v1/status")
 check "撤掉之后设备立刻失效" "401" "$code"
+n=$("$PE" status --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["pairedDevices"])')
+check "撤掉之后 status 的设备数跟着减" "0" "$n"
 
 echo
 echo "▸ 改名之后旧名字仍然能用"

@@ -140,7 +140,7 @@ summary: 双写窗口期是主要风险来源
 
 ```bash
 pe setup                    # 首次配置向导
-pe status                   # 服务在不在、盯着什么、收了多少
+pe status                   # 服务在不在、盯着什么、收了多少、几台设备配对着
 pe doctor --fix             # 自检，能自动修的直接修
 
 pe pair                     # 加一台设备：打印一次性配对码

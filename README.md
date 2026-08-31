@@ -167,7 +167,7 @@ documents, add front-matter with project and tags."*
 
 ```bash
 pe setup                    # first-run wizard
-pe status                   # running? watching what? how much came in?
+pe status                   # running? watching what? how much came in? which devices?
 pe doctor --fix             # self-check; fixes what it can
 
 pe pair                     # add a device: prints a one-time pairing code

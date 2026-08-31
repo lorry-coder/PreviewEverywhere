@@ -38,6 +38,10 @@ type statusReport struct {
 	Docs    int      `json:"docs"`
 	Unread  int      `json:"unread"`
 	Latest  string   `json:"latest,omitempty"`
+	// Devices 只数**配对过的**设备。配对机制之前的旧登录（Cookie 里直接放主口令）
+	// 数不出来——服务端手上只有主口令的哈希，没有办法知道有几台设备正拿着它。
+	// 所以这个字段的名字要说清它数的是什么，不能让它暗示「能进来的只有这些」。
+	Devices int `json:"pairedDevices"`
 
 	ClientEndpoint string `json:"clientEndpoint,omitempty"`
 	ClientToken    bool   `json:"clientToken"`
@@ -93,6 +97,9 @@ func collectStatus(dataDir string) statusReport {
 				rep.Docs, rep.Unread = total, unread
 			}
 			rep.Latest = latestDoc(st)
+			if devices, err := st.ListDevices(); err == nil {
+				rep.Devices = len(devices)
+			}
 		}
 	}
 
@@ -187,6 +194,14 @@ func printStatus(r statusReport) {
 	fmt.Printf("  文档       %d 篇，%d 未读\n", r.Docs, r.Unread)
 	if r.Latest != "" {
 		fmt.Printf("  最近入库   %s\n", r.Latest)
+	}
+
+	// 配对设备数。0 台时给出下一步，而不是干巴巴报一个 0——
+	// 「还没配对过」这件事本身就是一条可以行动的信息。
+	if r.Devices == 0 {
+		fmt.Println("  已配对设备 无（加一台：pe pair）")
+	} else {
+		fmt.Printf("  已配对设备 %d 台（看明细：pe device list）\n", r.Devices)
 	}
 
 	if len(r.Sources) == 0 {
