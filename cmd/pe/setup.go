@@ -108,6 +108,17 @@ func cmdSetup(args []string) error {
 		if err := cmdHookInstall([]string{"--write"}); err != nil {
 			fmt.Printf("  ✗ 装 hook 失败：%v\n", err)
 		}
+		// cmdHookInstall 自己会报「现在推不推得上去」（见 reportPushReadiness）。
+		// 装完仍然推不上去时，这里再把「所以你该做什么」说一遍——
+		// 因为在向导的语境里，人刚刚才答过一次「不换口令」，
+		// 需要把那个选择和这个后果连起来。
+		if state, _ := checkPush(); state.broken() {
+			fmt.Println()
+			fmt.Println("  这个 hook 现在是装上了但用不了的状态。要让它能用：")
+			fmt.Println("    pe token rotate       换一个新口令")
+			fmt.Println("    pe client set         把新口令配给客户端")
+			fmt.Println("  （或者直接重跑 pe setup，这次在换口令那一问答 y）")
+		}
 	}
 
 	// ── ⑤ 怎么进去 ────────────────────────────────────────────────
@@ -193,7 +204,23 @@ func setupToken(cfg *config.Config, yes bool) (string, error) {
 	}
 
 	fmt.Println("  · 已有访问口令")
-	if yes || !confirm("换一个新的（所有设备要重新扫码）", false) {
+
+	// 提问要反映真实后果，而不是永远问同一句。
+	//
+	// 口令只存 sha256，沿用旧的就意味着**拿不到原文**，因而写不了客户端配置。
+	// 如果现有的客户端配置本来就不能用，那「不换口令」的真实代价是
+	// 「pe push 和 hook 继续推不上去」——而这一点必须在问的时候就说，
+	// 不能等人答完 n 之后才轻描淡写地提一句「跳过客户端配置」。
+	state, _ := checkPush()
+	question := "换一个新的（所有设备要重新扫码）"
+	def := false
+	if state.broken() {
+		fmt.Println("  ⚠ 但客户端配置现在不可用，pe push 与 hook 都推不上去。")
+		fmt.Println("    修好它需要口令原文，而口令只存哈希、拿不回来——只能换一个新的。")
+		question = "现在就换一个新口令，把客户端配置一起修好"
+		def = true
+	}
+	if yes || !confirm(question, def) {
 		return "", nil
 	}
 	token, err := cfg.NewToken()

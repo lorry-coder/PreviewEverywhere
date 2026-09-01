@@ -296,6 +296,10 @@ func installHook(path, command string) error {
 	for _, entry := range postToolUse {
 		if strings.Contains(fmt.Sprint(entry), "hook-ingest") {
 			fmt.Println("已经装过了，没有改动。")
+			// 仍然报一次「现在推不推得上去」。重跑一次 install 恰恰是
+			// 排查时最容易做的动作 —— 这时候只回一句「没有改动」，
+			// 等于把人原样送回他刚才的困惑里。
+			reportPushReadiness()
 			return nil
 		}
 	}
@@ -326,6 +330,9 @@ func installHook(path, command string) error {
 	fmt.Println("没反应的话跑 `pe hook-ingest --verbose` 看它抱怨什么：")
 	fmt.Printf("  echo '{\"session_id\":\"t\",\"cwd\":\"%s\",\"tool_input\":{\"file_path\":\"/some/doc.md\"}}' | pe hook-ingest --verbose\n",
 		filepath.Dir(path))
+	// 放在最末尾，不是紧跟「已写入」。警告要落在人的视线停下的地方——
+	// 夹在中间的话，后面那几行乐观的「重开会话就生效」会把它盖过去。
+	reportPushReadiness()
 	return nil
 }
 
@@ -364,11 +371,46 @@ func agentStatus() error {
 		fmt.Printf("  ○ 没装（%s 里没有 pe 的 hook）\n", path)
 		fmt.Println("    装上：pe agent install --write")
 	default:
-		fmt.Printf("  ● 已装（%s）\n", path)
-		fmt.Println("    agent 每写一个 .md / .html 就会自动进来，不管它写在哪个目录。")
+		// 「装上了」和「能用」是两件事。hook 自己永远不会喊——它的设计原则
+		// 就是绝不打断 agent——所以这里必须替它把差别说出来。
+		state, why := checkPush()
+		switch {
+		case state == pushOK:
+			fmt.Printf("  ● 已装，且推得通（%s）\n", path)
+			fmt.Println("    agent 每写一个 .md / .html 就会自动进来，不管它写在哪个目录。")
+		case state.broken():
+			fmt.Printf("  ◐ 已装，但**推不上去**（%s）\n", path)
+			fmt.Println("    它每次都会触发，然后静默跳过——你只会觉得「怎么没进来」。")
+			for _, line := range strings.Split(why, "\n") {
+				fmt.Printf("    %s\n", line)
+			}
+		default:
+			fmt.Printf("  ● 已装（%s）\n", path)
+			fmt.Printf("    %s\n", why)
+		}
 	}
 	fmt.Println()
 	fmt.Println("  另一条路是 MCP：`pe mcp` 让 agent 自己决定「这份值得给人看」，")
 	fmt.Println("  并附上标题、标签和摘要。两者的分工是「被动留档」和「主动投递」。")
 	return nil
+}
+
+// reportPushReadiness 在装完 hook 之后立刻说清楚它现在能不能用。
+//
+// 装好 ≠ 能用。这一句话的价值全在于：hook 推不上去时是**静默**的，
+// 而「装完了」的提示会让人以为事情已经成了，然后去等一个永远不来的文档。
+func reportPushReadiness() {
+	state, why := checkPush()
+	fmt.Println()
+	switch {
+	case state == pushOK:
+		fmt.Println("✓ 客户端配置可用，hook 现在就能把文档推进来。")
+	case state.broken():
+		fmt.Println("⚠ 但它现在推不上去 —— hook 会每次触发、然后静默跳过。")
+		for _, line := range strings.Split(why, "\n") {
+			fmt.Println("  " + line)
+		}
+	default:
+		fmt.Println("· " + why)
+	}
 }

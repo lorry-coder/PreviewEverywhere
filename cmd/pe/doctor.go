@@ -369,6 +369,13 @@ func checkHook(c *checkCtx) checkResult {
 	// 只能眼睁睁看着它一直说「没装」。
 	data, _ := os.ReadFile(path)
 	if strings.Contains(string(data), "hook-ingest") {
+		// 「装了」不等于「能用」。原先这一项只答前者，于是报告里会同时出现
+		// 「客户端配置 ✗」和「agent hook ✓」——两条看着互不相干的结论，
+		// 而它们其实是同一件事的因和果。只看后者的人会以为 hook 是好的。
+		if state, why := checkPush(); state.broken() {
+			return checkResult{Status: statusFail, Detail: "已装，但推不上去",
+				Hint: "它每次都会触发，然后静默跳过（设计上绝不打断 agent）。\n" + why}
+		}
 		return checkResult{Status: statusOK, Detail: "已装（" + path + "）"}
 	}
 	if !c.fix {

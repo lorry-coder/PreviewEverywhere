@@ -344,6 +344,36 @@ out=$("$PE" client set --endpoint "http://127.0.0.1:1" --token bad 2>&1 </dev/nu
 case "$out" in *"连不上"*) ok "连不上时明确报错，且不默默保存";; *) bad "连不上却没报错：$out";; esac
 
 echo
+echo "▸ hook「装了」与「能用」必须分开报"
+# 踩过的坑：hook 装上了、agent status 说「已装」、agent install 说「已写入」，
+# 而它每次触发都在静默跳过 —— 因为客户端没配口令。三个地方都说好，
+# 唯一说实话的 doctor 又把「客户端配置 ✗」和「agent hook ✓」报成两条
+# 互不相干的项。hook 自己永远不会喊（设计上绝不打断 agent），
+# 所以别的地方必须替它喊。
+"$PE" agent install --write >/dev/null 2>&1
+out=$("$PE" agent status 2>&1)
+case "$out" in *"推得通"*) ok "配好时 agent status 说「已装，且推得通」";; *) bad "配好时的说法不对：$out";; esac
+r=$("$PE" doctor --run "agent hook" --json | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["status"])')
+check "配好时 doctor 判 ok" "ok" "$r"
+
+# 换成一个错的口令：三处都必须改口
+cp "$HOME/.config/pe/config.toml" "$W/client.good"
+"$PE" client set --endpoint "$BASE" --token deadbeefdeadbeef --no-verify >/dev/null 2>&1
+out=$("$PE" agent status 2>&1)
+case "$out" in *"推不上去"*) ok "口令不对时 agent status 说「推不上去」";; *) bad "口令不对却说没问题：$out";; esac
+case "$out" in *"静默跳过"*) ok "并点明它是静默跳过的";; *) bad "没说清是静默跳过";; esac
+r=$("$PE" doctor --run "agent hook" --json | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["status"])')
+check "口令不对时 doctor 判 fail（而不是只报客户端配置那一项）" "fail" "$r"
+out=$("$PE" agent install --write 2>&1)
+case "$out" in *"推不上去"*) ok "agent install 装完当场说它用不了";; *) bad "install 装完没提醒：$out";; esac
+
+# 「连不上」不该被当成坏了 —— 服务没起来是一时的，不是配置错了
+"$PE" client set --endpoint "http://127.0.0.1:1" --token deadbeef --no-verify >/dev/null 2>&1
+r=$("$PE" doctor --run "agent hook" --json | python3 -c 'import json,sys;print(json.load(sys.stdin)[0]["status"])')
+check "只是连不上时 doctor 不判 fail" "ok" "$r"
+cp "$W/client.good" "$HOME/.config/pe/config.toml"
+
+echo
 echo "▸ pe status：服务在跑时和没跑时都要答得上来"
 out=$("$PE" status 2>&1)
 case "$out" in *"运行中"*) ok "status 认出服务在跑";; *) bad "status 没认出运行中的服务：$out";; esac
